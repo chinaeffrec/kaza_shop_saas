@@ -1,0 +1,27 @@
+.title{font-size:22px;font-weight:600;margin-bottom:8px}
+.hint{color:#666;font-size:14px;margin-bottom:24px;line-height:1.6}
+.hint code{background:#f3f3f3;padding:1px 5px;border-radius:4px;font-family:monospace;color:#333}
+.dropzone{border:2px dashed #ccc;border-radius:14px;padding:48px 24px;text-align:center;cursor:pointer;transition:border-color .2s,background .2s;background:#fafafa;margin-bottom:16px}
+.dropzone:hover{border-color:#6c63ff;background:#f5f4ff}
+.dragging{border-color:#6c63ff;background:#ede9ff}
+.hasFile{border-color:#43a047;background:#f1f8e9}
+.dropText{display:flex;flex-direction:column;align-items:center;gap:8px;color:#888;font-size:15px}
+.dropIcon{font-size:40px;margin-bottom:4px}
+.or{font-size:13px;color:#bbb}
+.fileInfo{display:flex;align-items:center;justify-content:center;gap:12px;font-size:15px}
+.fileIcon{font-size:32px}
+.fileName{font-weight:500;color:#2e7d32}
+.fileSize{color:#888;font-size:13px}
+.btnUpload{background:#6c63ff;color:#fff;padding:10px 28px;border-radius:10px;font-size:15px;font-weight:500;border:none;cursor:pointer;margin-bottom:20px}
+.btnUpload:hover:not(:disabled){background:#574fd6}
+.btnUpload:disabled{opacity:.6;cursor:not-allowed}
+.success{background:#e8f5e9;color:#2e7d32;padding:14px 18px;border-radius:10px;margin-bottom:20px;font-size:14px}
+.errList{margin-top:8px;padding-top:8px;border-top:1px solid #a5d6a7}
+.errLine{font-size:12px;color:#e53935;margin-top:2px}
+.errorBox{background:#fce4e4;color:#c62828;padding:14px 18px;border-radius:10px;margin-bottom:20px;font-size:14px}
+.template{margin-top:36px}
+.sectionTitle{font-size:16px;font-weight:600;margin-bottom:12px;color:#444}
+.tpl{border-collapse:collapse;font-size:13px;background:#fff;border-radius:10px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,.07)}
+.tpl th{background:#f3f3f3;padding:8px 14px;text-align:left;color:#555;border-bottom:1px solid #eee;font-family:monospace}
+.tpl td{padding:8px 14px;border-bottom:1px solid #f5f5f5;color:#333}
+.tpl tr:last-child td{border-bottom:none}

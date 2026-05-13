@@ -1,0 +1,40 @@
+.toolbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:20px}
+.title{font-size:22px;font-weight:600}
+.count{font-size:14px;font-weight:400;color:#888;margin-left:8px}
+.filters{display:flex;align-items:center;gap:10px;margin-bottom:16px;flex-wrap:wrap}
+.search{width:220px;padding:8px 12px;border:1px solid #ddd;border-radius:8px;font-size:14px}
+.filterSelect{padding:7px 10px;border:1px solid #ddd;border-radius:8px;font-size:13px;background:#fff}
+.checkLabel{display:flex;align-items:center;gap:6px;font-size:13px;color:#555;cursor:pointer;white-space:nowrap}
+.msg{color:#888;margin-top:40px;text-align:center}
+.table{width:100%;border-collapse:collapse;background:#fff;border-radius:10px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,.08);font-size:13px}
+.table th{background:#f8f8f8;text-align:left;padding:9px 12px;font-weight:500;color:#555;border-bottom:1px solid #eee}
+.table td{padding:9px 12px;border-bottom:1px solid #f0f0f0;vertical-align:middle}
+.table tr:last-child td{border-bottom:none}
+.noPhotoRow{background:#fffbeb}
+.noPhotoRow:hover{background:#fef9e0}
+.thumb{width:44px;height:44px;object-fit:cover;border-radius:6px;display:block}
+.noPhotoBadge{background:#fef3c7;color:#92400e;font-size:11px;padding:2px 6px;border-radius:4px;border:1px solid #fcd34d;white-space:nowrap}
+.nameCell{font-weight:500;max-width:180px}
+.subCell{color:#666;max-width:120px}
+.stockCell{text-align:center;font-variant-numeric:tabular-nums}
+.discount{color:#e53935;font-weight:500}
+.activeBadge{background:#e8f5e9;color:#2e7d32;padding:3px 10px;border-radius:12px;font-size:12px;border:none;cursor:pointer;transition:opacity .15s}
+.activeBadge:hover{opacity:.75}
+.inactiveBadge{background:#fce4e4;color:#c62828;padding:3px 10px;border-radius:12px;font-size:12px;border:none;cursor:pointer;transition:opacity .15s}
+.inactiveBadge:hover{opacity:.75}
+.actions{display:flex;gap:6px;white-space:nowrap}
+.btnAdd{background:#6c63ff;color:#fff;padding:8px 18px;border-radius:8px;font-size:14px;border:none;cursor:pointer}
+.btnAdd:hover{background:#574fd6}
+.btnEdit{background:#e8f0fe;border-radius:6px;padding:5px 9px;border:none;cursor:pointer}
+.btnDel{background:#fce4e4;border-radius:6px;padding:5px 9px;border:none;cursor:pointer}
+.overlay{position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;z-index:100}
+.modalBox{background:#fff;border-radius:14px;padding:28px;width:500px;max-height:92vh;overflow-y:auto}
+.modalTitle{font-size:18px;font-weight:600;margin-bottom:20px}
+.label{display:flex;flex-direction:column;gap:4px;font-size:13px;color:#555;margin-bottom:13px}
+.input{padding:8px 10px;border:1px solid #ddd;border-radius:8px;font-size:14px;resize:vertical;font-family:inherit}
+.input:focus{outline:none;border-color:#6c63ff}
+.fileHint{font-size:12px;color:#888;margin-top:2px}
+.modalFooter{display:flex;justify-content:flex-end;gap:10px;margin-top:12px}
+.btnCancel{background:#f0f0f0;color:#555;padding:9px 18px;border-radius:8px;border:none;cursor:pointer}
+.btnSave{background:#6c63ff;color:#fff;padding:9px 20px;border-radius:8px;border:none;cursor:pointer}
+.btnSave:disabled{opacity:.6;cursor:not-allowed}

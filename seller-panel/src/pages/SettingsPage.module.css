@@ -1,0 +1,34 @@
+.page{max-width:740px}
+.title{font-size:22px;font-weight:600;margin-bottom:24px}
+.section{background:#fff;border-radius:12px;padding:24px;margin-bottom:20px;box-shadow:0 1px 4px rgba(0,0,0,.07)}
+.sectionTitle{font-size:16px;font-weight:600;margin-bottom:16px;color:#333}
+.label{display:flex;flex-direction:column;gap:5px;font-size:13px;color:#555;margin-bottom:14px}
+.hint{font-size:13px;color:#888;margin-bottom:14px}
+.input{padding:8px 10px;border:1px solid #ddd;border-radius:8px;font-size:14px;font-family:inherit;resize:vertical}
+.input:focus{outline:none;border-color:#6c63ff}
+.btnSave{background:#6c63ff;color:#fff;padding:9px 22px;border-radius:8px;font-size:14px;border:none;cursor:pointer}
+.btnSave:disabled{opacity:.6;cursor:not-allowed}
+.btnCancel{background:#f0f0f0;color:#555;padding:9px 16px;border-radius:8px;font-size:14px;border:none;cursor:pointer}
+.pwMsg{font-size:13px;margin-bottom:12px;padding:8px 12px;border-radius:6px;background:#f5f5f5}
+.faqForm{display:flex;flex-direction:column;gap:8px;margin-bottom:20px;padding:16px;background:#f8f8f8;border-radius:10px}
+.faqFooter{display:flex;align-items:center;gap:10px}
+.faqList{display:flex;flex-direction:column;gap:8px}
+.faqItem{background:#f9f9f9;border-radius:8px;padding:12px 14px;border:1px solid #eee}
+.faqInactive{opacity:.5}
+.faqQ{font-weight:500;font-size:14px;margin-bottom:4px}
+.faqA{font-size:13px;color:#555;line-height:1.5}
+.faqActions{display:flex;gap:8px;margin-top:10px}
+.btnSm{background:#f0f0f0;padding:4px 10px;border-radius:6px;font-size:12px;border:none;cursor:pointer}
+.btnSmDanger{background:#fce4e4;padding:4px 8px;border-radius:6px;font-size:12px;border:none;cursor:pointer}
+.empty{color:#aaa;font-size:13px}
+.logsHead{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px}
+.logsActions{display:flex;gap:8px;flex-wrap:wrap}
+.logsHint{font-size:12px;color:#888;line-height:1.5;margin-bottom:12px}
+.btnRefresh{background:#f0f0f0;padding:7px 14px;border-radius:8px;font-size:13px;border:none;cursor:pointer}
+.btnRefresh:disabled{opacity:.6}
+.btnCacheReset{background:#e8f5e9;color:#2e7d32;padding:7px 14px;border-radius:8px;font-size:13px;border:none;cursor:pointer}
+.btnLogsDownload{background:#e3f2fd;color:#1565c0;padding:7px 14px;border-radius:8px;font-size:13px;border:none;cursor:pointer}
+.btnLogsDownload:disabled{opacity:.6}
+.logsBox{background:#1e1e2e;border-radius:8px;padding:14px 16px;max-height:240px;overflow-y:auto;margin-top:12px}
+.logLine{font-family:monospace;font-size:13px;color:#a6e3a1;padding:3px 0;border-bottom:1px solid #313244}
+.logLine:last-child{border-bottom:none}
