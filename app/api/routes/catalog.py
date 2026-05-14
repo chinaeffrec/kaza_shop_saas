@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, Header
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.routes.auth import get_admin_shop_id, require_auth
+from app.api.deps import get_owner_shop_id
 from app.api.schemas.catalog import (
     CacheReloadResponse, CatalogProductResponse,
     CategoryResponse, SubCategoryResponse,
@@ -126,8 +126,7 @@ async def get_product(
 
 @router.post("/cache/reload", response_model=CacheReloadResponse)
 async def reload_cache(
-    _: str = Depends(require_auth),
-    shop_id: int = Depends(get_admin_shop_id),
+    shop_id: int = Depends(get_owner_shop_id),
 ):
     await invalidate_catalog_cache(shop_id)
     return CacheReloadResponse(status="ok", message="Кэш каталога перезагружен")

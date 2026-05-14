@@ -11,10 +11,12 @@ from fastapi.responses import FileResponse, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.background import BackgroundTask
 
-from app.api.routes.auth import get_admin_shop_id, require_auth
+from app.api.deps import require_shop_id
 from app.api.schemas.settings import (
     FaqCreate, FaqItemResponse, FaqUpdate, SettingsResponse, SettingsUpdate,
 )
+from app.core.rbac import Perm
+from app.core.security import validate_url
 from app.db.session import get_session
 from app.services import settings_service_ext as svc
 from app.services import db_transfer_service as db_svc
@@ -42,14 +44,18 @@ async def get_public_settings(
         "payment_qr_url": s.payment_qr_url,
         "payment_qr_comment": s.payment_qr_comment,
         "seller_contact": s.seller_contact,
+        "cdek_enabled": s.cdek_enabled,
+        "yookassa_enabled": s.yookassa_enabled,
+        "miniapp_url": s.miniapp_url,
+        "default_language": s.default_language or "ru",
+        "shop_languages": s.shop_languages or "ru",
     }
 
 
 @router.get("/", response_model=SettingsResponse)
 async def get_settings(
     session: AsyncSession = Depends(get_session),
-    _: str = Depends(require_auth),
-    shop_id: int = Depends(get_admin_shop_id),
+    shop_id: int = require_shop_id(Perm.SETTINGS_READ),
 ):
     return await svc.read_settings(session, shop_id)
 
@@ -58,9 +64,20 @@ async def get_settings(
 async def update_settings(
     data: SettingsUpdate,
     session: AsyncSession = Depends(get_session),
-    _: str = Depends(require_auth),
-    shop_id: int = Depends(get_admin_shop_id),
+    shop_id: int = require_shop_id(Perm.SETTINGS_WRITE),
 ):
+    # SSRF prevention: validate miniapp_url before persisting
+    if data.miniapp_url:
+        data = data.model_copy(
+            update={"miniapp_url": validate_url(data.miniapp_url, field_name="miniapp_url")}
+        )
+    # Validate yookassa_return_url similarly
+    if data.yookassa_return_url:
+        data = data.model_copy(
+            update={"yookassa_return_url": validate_url(
+                data.yookassa_return_url, field_name="yookassa_return_url"
+            )}
+        )
     return await svc.update_settings(data, session, shop_id)
 
 
@@ -68,8 +85,7 @@ async def update_settings(
 async def upload_logo(
     file: UploadFile = File(...),
     session: AsyncSession = Depends(get_session),
-    _: str = Depends(require_auth),
-    shop_id: int = Depends(get_admin_shop_id),
+    shop_id: int = require_shop_id(Perm.SETTINGS_WRITE),
 ):
     return await svc.upload_logo(file, session, shop_id)
 
@@ -77,8 +93,7 @@ async def upload_logo(
 @router.delete("/logo")
 async def delete_logo(
     session: AsyncSession = Depends(get_session),
-    _: str = Depends(require_auth),
-    shop_id: int = Depends(get_admin_shop_id),
+    shop_id: int = require_shop_id(Perm.SETTINGS_WRITE),
 ):
     return await svc.delete_logo(session, shop_id)
 
@@ -87,8 +102,7 @@ async def delete_logo(
 async def upload_stamp(
     file: UploadFile = File(...),
     session: AsyncSession = Depends(get_session),
-    _: str = Depends(require_auth),
-    shop_id: int = Depends(get_admin_shop_id),
+    shop_id: int = require_shop_id(Perm.SETTINGS_WRITE),
 ):
     return await svc.upload_stamp(file, session, shop_id)
 
@@ -96,8 +110,7 @@ async def upload_stamp(
 @router.delete("/stamp")
 async def delete_stamp(
     session: AsyncSession = Depends(get_session),
-    _: str = Depends(require_auth),
-    shop_id: int = Depends(get_admin_shop_id),
+    shop_id: int = require_shop_id(Perm.SETTINGS_WRITE),
 ):
     return await svc.delete_stamp(session, shop_id)
 
@@ -106,8 +119,7 @@ async def delete_stamp(
 async def upload_payment_qr(
     file: UploadFile = File(...),
     session: AsyncSession = Depends(get_session),
-    _: str = Depends(require_auth),
-    shop_id: int = Depends(get_admin_shop_id),
+    shop_id: int = require_shop_id(Perm.SETTINGS_WRITE),
 ):
     return await svc.upload_payment_qr(file, session, shop_id)
 
@@ -115,8 +127,7 @@ async def upload_payment_qr(
 @router.delete("/payment-qr")
 async def delete_payment_qr(
     session: AsyncSession = Depends(get_session),
-    _: str = Depends(require_auth),
-    shop_id: int = Depends(get_admin_shop_id),
+    shop_id: int = require_shop_id(Perm.SETTINGS_WRITE),
 ):
     return await svc.delete_payment_qr(session, shop_id)
 
@@ -124,7 +135,7 @@ async def delete_payment_qr(
 @router.get("/db-export", summary="Экспорт базы данных в JSON")
 async def db_export(
     session: AsyncSession = Depends(get_session),
-    _: str = Depends(require_auth),
+    _: int = require_shop_id(Perm.SETTINGS_DESTRUCTIVE),
 ):
     content = await db_svc.export_db(session)
     filename = f"kaza_db_{datetime.now().strftime('%Y-%m-%d')}.json"
@@ -139,14 +150,21 @@ async def db_export(
 async def db_import(
     file: UploadFile = File(...),
     session: AsyncSession = Depends(get_session),
-    _: str = Depends(require_auth),
+    _: int = require_shop_id(Perm.SETTINGS_DESTRUCTIVE),
+    x_confirm: Optional[str] = Header(default=None, alias="X-Confirm-Destructive"),
 ):
+    # A5: разрушительная операция требует явного подтверждения
+    if x_confirm != "yes":
+        raise HTTPException(
+            status_code=400,
+            detail="Это действие необратимо. Передайте заголовок X-Confirm-Destructive: yes",
+        )
     content = await file.read()
     return await db_svc.import_db(content, session)
 
 
 @router.get("/media-export", summary="Экспорт медиафайлов (ZIP)")
-async def media_export(_: str = Depends(require_auth)):
+async def media_export(_: int = require_shop_id(Perm.SETTINGS_DESTRUCTIVE)):
     content = await db_svc.export_media()
     filename = f"kaza_media_{datetime.now().strftime('%Y-%m-%d')}.zip"
     return Response(
@@ -159,14 +177,21 @@ async def media_export(_: str = Depends(require_auth)):
 @router.post("/media-import", summary="Импорт медиафайлов из ZIP")
 async def media_import(
     file: UploadFile = File(...),
-    _: str = Depends(require_auth),
+    _: int = require_shop_id(Perm.SETTINGS_DESTRUCTIVE),
+    x_confirm: Optional[str] = Header(default=None, alias="X-Confirm-Destructive"),
 ):
+    # A5: перезапись медиафайлов требует явного подтверждения
+    if x_confirm != "yes":
+        raise HTTPException(
+            status_code=400,
+            detail="Это действие перезапишет медиафайлы. Передайте заголовок X-Confirm-Destructive: yes",
+        )
     content = await file.read()
     return await db_svc.import_media(content)
 
 
 @router.get("/logs/download")
-async def download_logs(_: str = Depends(require_auth)):
+async def download_logs(_: int = require_shop_id(Perm.SETTINGS_READ)):
     log_files = []
     for logs_dir in _LOG_DIRS:
         if logs_dir.exists():
@@ -203,8 +228,7 @@ async def list_faq(
 async def create_faq(
     data: FaqCreate,
     session: AsyncSession = Depends(get_session),
-    _: str = Depends(require_auth),
-    shop_id: int = Depends(get_admin_shop_id),
+    shop_id: int = require_shop_id(Perm.FAQ_WRITE),
 ):
     return await svc.create_faq(data, session, shop_id)
 
@@ -214,8 +238,7 @@ async def update_faq(
     item_id: int,
     data: FaqUpdate,
     session: AsyncSession = Depends(get_session),
-    _: str = Depends(require_auth),
-    shop_id: int = Depends(get_admin_shop_id),
+    shop_id: int = require_shop_id(Perm.FAQ_WRITE),
 ):
     return await svc.update_faq(item_id, data, session, shop_id)
 
@@ -224,7 +247,6 @@ async def update_faq(
 async def delete_faq(
     item_id: int,
     session: AsyncSession = Depends(get_session),
-    _: str = Depends(require_auth),
-    shop_id: int = Depends(get_admin_shop_id),
+    shop_id: int = require_shop_id(Perm.FAQ_WRITE),
 ):
     return await svc.delete_faq(item_id, session, shop_id)

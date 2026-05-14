@@ -737,8 +737,111 @@ if [[ "$REMOTE_OS" != "ubuntu" && "$REMOTE_OS" != "debian" ]]; then
 fi
 ok "ОС сервера: ${REMOTE_OS}"
 
+# ── Топология развёртывания ────────────────────────────────────────────────────
+step "Шаг 2/6: Топология развёртывания"
+echo ""
+echo -e "  ${BOLD}1)${NC} 🖥  ${BOLD}Один сервер${NC} — приложение и данные вместе"
+echo -e "     Проще. Подходит, если сервер находится в России"
+echo -e "     или требования 152-ФЗ неактуальны."
+echo ""
+echo -e "  ${BOLD}2)${NC} 🌐+🇷🇺  ${BOLD}Два сервера${NC} — приложение и данные раздельно"
+echo -e "     Приложение/бот: ${SERVER_IP} (может быть за рубежом — для доступа к Telegram)"
+echo -e "     База данных/Redis: отдельный российский сервер (152-ФЗ)"
+echo -e "     Оба сервера могут иметь один и тот же IP — тогда поведение как в режиме 1."
+echo ""
+TOPOLOGY=""
+while true; do
+    read -rp "  Выбор (1 или 2): " TOP_CHOICE
+    case "$TOP_CHOICE" in
+        1) TOPOLOGY="single"; break ;;
+        2) TOPOLOGY="split";  break ;;
+        *) warn "Введите 1 или 2" ;;
+    esac
+done
+ok "Топология: ${TOPOLOGY}"
+
+# ── DATA-сервер (только для split-топологии) ───────────────────────────────────
+DATA_SERVER_IP=""
+DATA_SERVER_USER="root"
+DATA_SERVER_PORT="22"
+DATA_SERVER_PASS=""
+DATA_SERVER_KEY=""
+DATA_AUTH_METHOD="password"
+
+if [[ "$TOPOLOGY" == "split" ]]; then
+    echo ""
+    echo -e "  ${YELLOW}Данные для подключения к DATA-серверу (Россия):${NC}"
+    echo ""
+    while true; do
+        read -rp "  IP DATA-сервера: " DATA_SERVER_IP
+        DATA_SERVER_IP="${DATA_SERVER_IP// /}"
+        [[ -n "$DATA_SERVER_IP" ]] && break
+        warn "IP не может быть пустым"
+    done
+    read -rp "  SSH пользователь DATA-сервера (Enter = root): " DATA_SERVER_USER
+    DATA_SERVER_USER="${DATA_SERVER_USER:-root}"
+    read -rp "  SSH порт DATA-сервера (Enter = 22): " DATA_SERVER_PORT
+    DATA_SERVER_PORT="${DATA_SERVER_PORT:-22}"
+
+    echo ""
+    echo -e "  ${YELLOW}Аутентификация на DATA-сервере:${NC}"
+    echo -e "  ${BOLD}1)${NC} Пароль   ${BOLD}2)${NC} SSH-ключ"
+    while true; do
+        read -rp "  Выбор (1/2): " DATA_AUTH_CHOICE
+        case "$DATA_AUTH_CHOICE" in 1|2) break ;; *) warn "Введите 1 или 2" ;; esac
+    done
+    DATA_SSH_OPTS=(-p "$DATA_SERVER_PORT" -o StrictHostKeyChecking=no -o ConnectTimeout=10
+                   -o ServerAliveInterval=30 -o ServerAliveCountMax=60)
+    DATA_SCP_OPTS=(-P "$DATA_SERVER_PORT" -o StrictHostKeyChecking=no)
+    if [[ "$DATA_AUTH_CHOICE" == "1" ]]; then
+        DATA_AUTH_METHOD="password"
+        read -rsp "  SSH-пароль для ${DATA_SERVER_USER}@${DATA_SERVER_IP}: " DATA_SERVER_PASS; echo ""
+    else
+        DATA_AUTH_METHOD="key"
+        read -rp "  Путь к SSH-ключу (Enter = ~/.ssh/id_rsa): " DATA_SERVER_KEY
+        DATA_SERVER_KEY="${DATA_SERVER_KEY:-${HOME}/.ssh/id_rsa}"
+        [[ -f "$DATA_SERVER_KEY" ]] || err "Файл ключа не найден: $DATA_SERVER_KEY"
+        DATA_SSH_OPTS+=(-i "$DATA_SERVER_KEY" -o BatchMode=yes)
+        DATA_SCP_OPTS+=(-i "$DATA_SERVER_KEY")
+    fi
+
+    # Обёртки для DATA-сервера
+    run_data_ssh() {
+        if [[ "$DATA_AUTH_METHOD" == "password" ]]; then
+            SSHPASS="$DATA_SERVER_PASS" sshpass -e ssh "${DATA_SSH_OPTS[@]}" \
+                "${DATA_SERVER_USER}@${DATA_SERVER_IP}" "$@"
+        else
+            ssh "${DATA_SSH_OPTS[@]}" "${DATA_SERVER_USER}@${DATA_SERVER_IP}" "$@"
+        fi
+    }
+    run_data_scp() {
+        if [[ "$DATA_AUTH_METHOD" == "password" ]]; then
+            SSHPASS="$DATA_SERVER_PASS" sshpass -e scp "${DATA_SCP_OPTS[@]}" "$@"
+        else
+            scp "${DATA_SCP_OPTS[@]}" "$@"
+        fi
+    }
+
+    # Проверяем подключение к DATA-серверу
+    info "Проверяем подключение к DATA-серверу ${DATA_SERVER_IP}:${DATA_SERVER_PORT}..."
+    set +e
+    DATA_SSH_TEST=$(run_data_ssh "echo ok" 2>&1)
+    DATA_SSH_RC=$?
+    set -e
+    if [[ $DATA_SSH_RC -ne 0 ]]; then
+        err "Не удалось подключиться к DATA-серверу: ${DATA_SSH_TEST}"
+    fi
+    ok "DATA-сервер: подключение установлено"
+
+    # Одинаковый IP = фактически один сервер → переключаем в single
+    if [[ "$DATA_SERVER_IP" == "$SERVER_IP" ]]; then
+        warn "DATA-сервер совпадает с APP-сервером — автоматически переключаемся в режим «один сервер»"
+        TOPOLOGY="single"
+    fi
+fi
+
 # ── Настройка домена ───────────────────────────────────────────────────────────
-step "Шаг 2/5: Домен и SSL"
+step "Шаг 3/6: Домен и SSL (APP-сервер)"
 echo ""
 echo -e "  Домен необязателен — панель управления работает и по IP."
 echo -e "  Домен нужен для HTTPS. Если используете домен, его A-запись"
@@ -768,7 +871,10 @@ PANEL_URL="http://${SERVER_IP}"
 
 echo ""
 echo -e "${BOLD}  Параметры установки:${NC}"
-echo -e "  Сервер:  ${GREEN}${SSH_USER}@${SERVER_IP}:${SSH_PORT}${NC}"
+echo -e "  Топология: ${CYAN}${TOPOLOGY}${NC}"
+echo -e "  APP-сервер:  ${GREEN}${SSH_USER}@${SERVER_IP}:${SSH_PORT}${NC}"
+[[ "$TOPOLOGY" == "split" ]] && \
+    echo -e "  DATA-сервер: ${YELLOW}${DATA_SERVER_USER}@${DATA_SERVER_IP}:${DATA_SERVER_PORT}${NC}"
 echo -e "  Домен:   ${GREEN}${DOMAIN}${NC}  SSL: $( [[ $USE_SSL -eq 1 ]] && echo 'да' || echo 'нет' )"
 echo -e "  Бот:     ${GREEN}@${BOT_NAME}${NC}"
 echo -e "  Панель:  ${GREEN}${PANEL_URL}${NC}"
@@ -776,22 +882,29 @@ echo ""
 read -rp "  Всё верно? Начать установку? (y/N): " CONFIRM
 [[ "$CONFIRM" =~ ^[Yy]$ ]] || { info "Отменено."; exit 0; }
 
-# Все интерактивные вопросы позади - теперь включаем лог
+# Все интерактивные вопросы позади — теперь включаем лог
 exec > >(tee -a "$LOG_FILE") 2>&1
 
 # ── Подготовка файлов ──────────────────────────────────────────────────────────
-step "Шаг 3/5: Подготовка"
+step "Шаг 4/6: Подготовка"
 SECRET_KEY=$(gen_secret); DB_PASSWORD=$(gen_password); BOT_API_TOKEN=$(gen_secret)
+REDIS_PASSWORD=$(gen_password)   # нужен для split-топологии (Redis с паролем)
 ok "Секреты сгенерированы"
 
-# Создаём .env локально
+# ── .env для APP-сервера ───────────────────────────────────────────────────────
 ENV_FILE=$(mktemp /tmp/kaza_env_XXXXXX)
 {
-    echo "# Kaza Shop — конфигурация (создано $(date))"
+    echo "# Kaza Shop — конфигурация APP-сервера (создано $(date))"
     echo "ENV=production"
     echo "DB_USER=kaza_user"
     printf 'DB_PASSWORD=%s\n' "$DB_PASSWORD"
-    echo "DB_HOST=db"; echo "DB_PORT=5432"; echo "DB_NAME=kaza_shop"
+    # В split-топологии DB_HOST указывает на DATA-сервер, иначе — локальный контейнер
+    if [[ "$TOPOLOGY" == "split" ]]; then
+        printf 'DB_HOST=%s\n' "$DATA_SERVER_IP"
+    else
+        echo "DB_HOST=db"
+    fi
+    echo "DB_PORT=5432"; echo "DB_NAME=kaza_shop"
     printf 'SECRET_KEY=%s\n'      "$SECRET_KEY"
     printf 'ADMIN_PASSWORD=%s\n'  "$ADMIN_PASSWORD"
     printf 'ADMIN_TG_ID=%s\n'     "$ADMIN_TG_ID"
@@ -805,13 +918,36 @@ ENV_FILE=$(mktemp /tmp/kaza_env_XXXXXX)
     fi
     printf 'ALERT_BOT_TOKEN=%s\n' "$BOT_TOKEN"
     printf 'ALERT_CHAT_ID=%s\n'   "$ADMIN_TG_ID"
-    echo "REDIS_URL=redis://redis:6379/0"
+    if [[ "$TOPOLOGY" == "split" ]]; then
+        # Redis на DATA-сервере — с паролем
+        printf 'REDIS_URL=redis://:%s@%s:6379/0\n' "$REDIS_PASSWORD" "$DATA_SERVER_IP"
+        printf 'REDIS_PASSWORD=%s\n' "$REDIS_PASSWORD"
+    else
+        echo "REDIS_URL=redis://redis:6379/0"
+    fi
     echo "BACKUP_KEEP_DAYS=14"; echo "LOG_LEVEL=INFO"
     echo "UPDATE_CHANNEL=git"
     echo "UPDATE_BRANCH=main"
     echo "UPDATE_ARCHIVE_URL="
+    # Флаг топологии (используется скриптами обновления)
+    printf 'KAZA_TOPOLOGY=%s\n' "$TOPOLOGY"
 } > "$ENV_FILE"
-ok ".env подготовлен"
+ok ".env APP-сервера подготовлен"
+
+# ── .env для DATA-сервера (только для split) ───────────────────────────────────
+DATA_ENV_FILE=""
+if [[ "$TOPOLOGY" == "split" ]]; then
+    DATA_ENV_FILE=$(mktemp /tmp/kaza_data_env_XXXXXX)
+    {
+        echo "# Kaza Shop — конфигурация DATA-сервера (создано $(date))"
+        echo "DB_USER=kaza_user"
+        printf 'DB_PASSWORD=%s\n' "$DB_PASSWORD"
+        echo "DB_NAME=kaza_shop"
+        printf 'REDIS_PASSWORD=%s\n' "$REDIS_PASSWORD"
+        printf 'APP_SERVER_IP=%s\n' "$SERVER_IP"
+    } > "$DATA_ENV_FILE"
+    ok ".env DATA-сервера подготовлен"
+fi
 
 # Создаём архив проекта
 ARCHIVE_DIR_NAME="$(basename "$SCRIPT_DIR")"
@@ -1083,28 +1219,192 @@ echo ""
 echo -e "${GREEN}═══ Установка на сервере завершена ═══${NC}"
 BODY_EOF
 
-ok "Скрипт установки подготовлен"
+ok "Скрипт установки APP-сервера подготовлен"
+
+# ── Скрипт установки DATA-сервера (только для split) ──────────────────────────
+DATA_REMOTE_SCRIPT=""
+if [[ "$TOPOLOGY" == "split" ]]; then
+    DATA_REMOTE_SCRIPT=$(mktemp /tmp/kaza_data_setup_XXXXXX.sh)
+
+    # Часть 1: переменные
+    cat > "$DATA_REMOTE_SCRIPT" << DATA_HEADER_EOF
+#!/bin/bash
+set -euo pipefail
+DATA_DIR="/opt/kaza_data"
+APP_SERVER_IP="${SERVER_IP}"
+DATA_HEADER_EOF
+
+    # Часть 2: логика DATA-сервера
+    cat >> "$DATA_REMOTE_SCRIPT" << 'DATA_BODY_EOF'
+RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; BLUE='\033[0;34m'; BOLD='\033[1m'; NC='\033[0m'
+ok()   { echo -e "${GREEN}✓${NC} $*"; }
+warn() { echo -e "${YELLOW}⚠${NC}  $*"; }
+info() { echo -e "${BLUE}→${NC} $*"; }
+
+echo ""
+echo -e "${BOLD}═══ Kaza Shop DATA-сервер: установка ═══${NC}"
+
+# Docker
+if ! command -v docker &>/dev/null; then
+    info "Устанавливаем Docker..."
+    curl -fsSL https://get.docker.com | sh || apt-get update && apt-get install -y docker.io docker-compose-plugin
+    systemctl enable --now docker
+    ok "Docker установлен"
+else ok "Docker: $(docker --version | cut -d' ' -f3 | tr -d ',')"; fi
+docker compose version &>/dev/null 2>&1 || apt-get install -y -q docker-compose-plugin
+ok "Docker Compose готов"
+
+# Зеркала Docker Hub
+mkdir -p /etc/docker
+cat > /etc/docker/daemon.json << 'DOCKERCFG'
+{
+  "registry-mirrors": ["https://huecker.io","https://dockerhub.timeweb.cloud"],
+  "dns": ["8.8.8.8","1.1.1.1"]
+}
+DOCKERCFG
+systemctl restart docker
+ok "Зеркала Docker Hub настроены"
+
+# Директории
+mkdir -p "${DATA_DIR}/deploy/postgres"
+chown -R 1000:1000 "${DATA_DIR}" 2>/dev/null || true
+ok "Директории созданы: ${DATA_DIR}"
+
+# .env
+cp /tmp/kaza_data_env "${DATA_DIR}/.env"
+chmod 600 "${DATA_DIR}/.env"
+rm -f /tmp/kaza_data_env
+ok ".env DATA-сервера установлен"
+
+# docker-compose.data-only.yml
+cp /tmp/kaza_data_compose "${DATA_DIR}/docker-compose.data-only.yml"
+rm -f /tmp/kaza_data_compose
+
+# pg_hba_remote.conf
+cp /tmp/kaza_pg_hba "${DATA_DIR}/deploy/postgres/pg_hba_remote.conf" 2>/dev/null || true
+rm -f /tmp/kaza_pg_hba
+
+ok "Файлы конфигурации DATA-сервера установлены"
+
+# Firewall — открываем 5432 и 6379 только для APP-сервера
+if command -v ufw &>/dev/null || apt-get install -y -q ufw 2>/dev/null; then
+    ufw allow OpenSSH >/dev/null 2>&1 || true
+    ufw allow from "${APP_SERVER_IP}" to any port 5432 comment 'Kaza APP → PostgreSQL' >/dev/null 2>&1 || true
+    ufw allow from "${APP_SERVER_IP}" to any port 6379 comment 'Kaza APP → Redis' >/dev/null 2>&1 || true
+    ufw --force enable >/dev/null 2>&1 || true
+    ok "Firewall: 5432 и 6379 открыты только для APP-сервера (${APP_SERVER_IP})"
+else
+    warn "ufw не найден — настройте firewall вручную: порты 5432, 6379 только для ${APP_SERVER_IP}"
+fi
+
+# Запускаем PostgreSQL + Redis
+cd "${DATA_DIR}"
+info "Запускаем PostgreSQL и Redis..."
+docker compose -f docker-compose.data-only.yml up -d
+ok "PostgreSQL и Redis запущены"
+
+# Ожидаем готовности PostgreSQL
+info "Ожидаем готовности PostgreSQL (до 60 сек)..."
+DB_USER=$(grep '^DB_USER=' "${DATA_DIR}/.env" | cut -d= -f2-)
+DB_NAME=$(grep '^DB_NAME=' "${DATA_DIR}/.env" | cut -d= -f2-)
+for i in $(seq 1 12); do
+    sleep 5
+    if docker compose -f docker-compose.data-only.yml exec -T db \
+            pg_isready -U "$DB_USER" -d "$DB_NAME" &>/dev/null; then
+        ok "PostgreSQL готов"
+        break
+    fi
+    echo -n "."
+done
+
+echo ""
+echo -e "${GREEN}═══ DATA-сервер настроен ═══${NC}"
+echo -e "  PostgreSQL :5432"
+echo -e "  Redis      :6379"
+DATA_BODY_EOF
+
+    ok "Скрипт установки DATA-сервера подготовлен"
+fi
 
 # ── Загрузка файлов на сервер ──────────────────────────────────────────────────
-step "Шаг 4/5: Загрузка на сервер"
-info "Загружаем архив проекта..."
+step "Шаг 5/6: Загрузка на серверы"
+
+# --- DATA-сервер (только split) ---
+if [[ "$TOPOLOGY" == "split" ]]; then
+    info "Загружаем конфигурацию на DATA-сервер (${DATA_SERVER_IP})..."
+    run_data_scp "$DATA_ENV_FILE" "${DATA_SERVER_USER}@${DATA_SERVER_IP}:/tmp/kaza_data_env"
+    ok "DATA .env загружен"
+    run_data_scp "${SCRIPT_DIR}/docker-compose.data-only.yml" \
+        "${DATA_SERVER_USER}@${DATA_SERVER_IP}:/tmp/kaza_data_compose" 2>/dev/null \
+        || warn "docker-compose.data-only.yml не найден рядом — скопируйте на DATA-сервер вручную"
+    run_data_scp "${SCRIPT_DIR}/deploy/postgres/pg_hba_remote.conf" \
+        "${DATA_SERVER_USER}@${DATA_SERVER_IP}:/tmp/kaza_pg_hba" 2>/dev/null || true
+    run_data_scp "$DATA_REMOTE_SCRIPT" "${DATA_SERVER_USER}@${DATA_SERVER_IP}:/tmp/kaza_data_setup.sh"
+    ok "Скрипт DATA-сервера загружен"
+fi
+
+# --- APP-сервер ---
+info "Загружаем архив проекта на APP-сервер (${SERVER_IP})..."
 run_scp "$TEMP_ARCHIVE" "${SSH_USER}@${SERVER_IP}:/tmp/kaza_deploy.tar.gz"
 ok "Архив загружен"
 
-info "Загружаем .env..."
+info "Загружаем .env на APP-сервер..."
 run_scp "$ENV_FILE" "${SSH_USER}@${SERVER_IP}:/tmp/kaza_env"
 ok ".env загружен"
 
-info "Загружаем скрипт установки..."
+info "Загружаем скрипт установки APP-сервера..."
 run_scp "$REMOTE_SCRIPT" "${SSH_USER}@${SERVER_IP}:/tmp/kaza_setup.sh"
 ok "Скрипт загружен"
 
 # Очистка временных файлов
-rm -f "$ENV_FILE" "$REMOTE_SCRIPT"
+rm -f "$ENV_FILE" "$REMOTE_SCRIPT" "$DATA_REMOTE_SCRIPT" "$DATA_ENV_FILE"
 rm -rf "$TEMP_DIR"
 
-# ── Запуск установки на сервере ────────────────────────────────────────────────
-step "Шаг 5/5: Установка на сервере"
+# ── Установка на серверах ──────────────────────────────────────────────────────
+step "Шаг 6/6: Установка на серверах"
+echo ""
+
+# Сначала DATA-сервер (в split-топологии APP зависит от него)
+if [[ "$TOPOLOGY" == "split" ]]; then
+    info "Устанавливаем DATA-сервер (${DATA_SERVER_IP})..."
+    echo ""
+    if [[ "$DATA_AUTH_METHOD" == "password" ]]; then
+        DATA_LONG_OPTS=(-p "$DATA_SERVER_PORT" -o StrictHostKeyChecking=no
+                        -o ConnectTimeout=10 -o ServerAliveInterval=30 -o ServerAliveCountMax=60)
+        SSHPASS="$DATA_SERVER_PASS" sshpass -e ssh "${DATA_LONG_OPTS[@]}" \
+            "${DATA_SERVER_USER}@${DATA_SERVER_IP}" "bash /tmp/kaza_data_setup.sh" || true
+    else
+        DATA_LONG_OPTS=(-p "$DATA_SERVER_PORT" -o StrictHostKeyChecking=no -i "$DATA_SERVER_KEY"
+                        -o BatchMode=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=60)
+        ssh "${DATA_LONG_OPTS[@]}" "${DATA_SERVER_USER}@${DATA_SERVER_IP}" \
+            "bash /tmp/kaza_data_setup.sh" || true
+    fi
+    run_data_ssh "rm -f /tmp/kaza_data_setup.sh" 2>/dev/null || true
+
+    # Ждём доступности PostgreSQL с APP-сервера
+    info "Проверяем доступность PostgreSQL с APP-сервера..."
+    sleep 5
+    set +e
+    PG_CHECK=$(run_ssh "nc -z -w5 ${DATA_SERVER_IP} 5432 2>/dev/null && echo ok || echo fail")
+    set -e
+    if [[ "$PG_CHECK" == "ok" ]]; then
+        ok "PostgreSQL на DATA-сервере доступен с APP-сервера"
+    else
+        warn "PostgreSQL не доступен с APP-сервера. Проверьте firewall DATA-сервера."
+        warn "Ожидаемая команда: ufw allow from ${SERVER_IP} to any port 5432"
+    fi
+    echo ""
+fi
+
+# Теперь APP-сервер (используем app-only compose в split-режиме)
+# Подставляем правильный docker-compose файл в REMOTE_SCRIPT уже на сервере
+if [[ "$TOPOLOGY" == "split" ]]; then
+    info "Устанавливаем APP-сервер (${SERVER_IP}) — приложение без локальной БД..."
+    # Патчим удалённый скрипт: заменяем docker-compose.prod.yml на docker-compose.app-only.yml
+    run_ssh "sed -i 's/docker-compose\.prod\.yml/docker-compose.app-only.yml/g' /tmp/kaza_setup.sh" 2>/dev/null || true
+else
+    info "Устанавливаем сервер (${SERVER_IP})..."
+fi
 echo ""
 run_ssh_long "bash /tmp/kaza_setup.sh" || true
 run_ssh "rm -f /tmp/kaza_setup.sh" 2>/dev/null || true
@@ -1132,27 +1432,58 @@ fi
 echo ""
 echo -e "${BOLD}${GREEN}════════════════════════════════════════${NC}"
 echo -e "${BOLD}${GREEN}  ✓ Установка завершена!${NC}"
+if [[ "$TOPOLOGY" == "split" ]]; then
+    echo -e "${BOLD}${CYAN}  Топология: два сервера (152-ФЗ)${NC}"
+fi
 echo -e "${BOLD}${GREEN}════════════════════════════════════════${NC}"
 echo ""
 echo -e "  🌐  Панель: ${CYAN}${PANEL_URL}${NC}   логин ${GREEN}admin${NC}"
 echo -e "  🤖  Бот:    ${CYAN}@${BOT_NAME}${NC}"
 echo ""
-echo -e "  ${BOLD}Управление (по SSH):${NC}"
-printf "  %-14s %s\n" "Статус:"   "cd /opt/kaza_shop && docker compose -f docker-compose.prod.yml ps"
-printf "  %-14s %s\n" "Логи:"     "cd /opt/kaza_shop && docker compose -f docker-compose.prod.yml logs -f"
-printf "  %-14s %s\n" "Обновить:" "bash /opt/kaza_shop/update.sh"
-printf "  %-14s %s\n" "Бэкап:"    "bash /opt/kaza_shop/backup.sh"
+if [[ "$TOPOLOGY" == "split" ]]; then
+    APP_COMPOSE_FILE="docker-compose.app-only.yml"
+    echo -e "  ${BOLD}Серверы:${NC}"
+    echo -e "  APP-сервер (приложение): ${GREEN}${SERVER_IP}${NC}"
+    echo -e "  DATA-сервер (данные):    ${YELLOW}${DATA_SERVER_IP}${NC}  ← персональные данные в России"
+    echo ""
+    echo -e "  ${BOLD}Управление APP-сервером:${NC}"
+    printf "  %-14s %s\n" "Статус:"   "cd /opt/kaza_shop && docker compose -f ${APP_COMPOSE_FILE} ps"
+    printf "  %-14s %s\n" "Логи:"     "cd /opt/kaza_shop && docker compose -f ${APP_COMPOSE_FILE} logs -f"
+    echo ""
+    echo -e "  ${BOLD}Управление DATA-сервером:${NC}"
+    printf "  %-14s %s\n" "Статус:"   "cd /opt/kaza_data && docker compose -f docker-compose.data-only.yml ps"
+    printf "  %-14s %s\n" "Логи PG:"  "cd /opt/kaza_data && docker compose -f docker-compose.data-only.yml logs db"
+    echo ""
+    echo -e "  ${BOLD}Перенос DATA-сервера:${NC}"
+    echo -e "  bash scripts/migrate_data_server.sh"
+else
+    APP_COMPOSE_FILE="docker-compose.prod.yml"
+    echo -e "  ${BOLD}Управление (по SSH):${NC}"
+    printf "  %-14s %s\n" "Статус:"   "cd /opt/kaza_shop && docker compose -f ${APP_COMPOSE_FILE} ps"
+    printf "  %-14s %s\n" "Логи:"     "cd /opt/kaza_shop && docker compose -f ${APP_COMPOSE_FILE} logs -f"
+    printf "  %-14s %s\n" "Обновить:" "bash /opt/kaza_shop/update.sh"
+    printf "  %-14s %s\n" "Бэкап:"    "bash /opt/kaza_shop/backup.sh"
+fi
 echo ""
 echo -e "  Лог: ${LOG_FILE}"
 echo ""
 
 # Telegram-уведомление
-curl -sf "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
-    -d "chat_id=${ADMIN_TG_ID}" -d "parse_mode=HTML" \
-    --data-urlencode "text=🎉 <b>Kaza Shop установлен!</b>
+TGTEXT="🎉 <b>Kaza Shop установлен!</b>
 
 🌐 Панель: ${PANEL_URL}
 🤖 Бот: @${BOT_NAME}
-
+"
+if [[ "$TOPOLOGY" == "split" ]]; then
+    TGTEXT+="
+🗄 DATA-сервер (152-ФЗ): ${DATA_SERVER_IP}
+🖥 APP-сервер: ${SERVER_IP}
+"
+fi
+TGTEXT+="
 Логин: <code>admin</code>
-Пароль: тот что вы задали" >/dev/null 2>&1 || true
+Пароль: тот что вы задали"
+
+curl -sf "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
+    -d "chat_id=${ADMIN_TG_ID}" -d "parse_mode=HTML" \
+    --data-urlencode "text=${TGTEXT}" >/dev/null 2>&1 || true

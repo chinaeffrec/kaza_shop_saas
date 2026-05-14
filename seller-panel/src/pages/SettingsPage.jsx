@@ -3,7 +3,7 @@ import { api } from '../api.js'
 import { useToast } from '../components/Toast.jsx'
 import s from './SettingsPage.module.css'
 
-export default function SettingsPage({ onSaved, adminLogin }) {
+export default function SettingsPage({ onSaved, userEmail, shopId, isSuperAdmin = false }) {
   const toast = useToast()
   const [shopName, setShopName]         = useState('')
   const [welcomeMsg, setWelcomeMsg]     = useState('')
@@ -20,9 +20,13 @@ export default function SettingsPage({ onSaved, adminLogin }) {
   const [dragIdx, setDragIdx] = useState(null)
   const [editFaqId, setEditFaqId] = useState(null)
 
-  const [pwForm, setPwForm]   = useState({ current_password:'', new_login:'', new_password:'' })
+  const [pwForm, setPwForm]   = useState({ current_password:'', new_password:'' })
   const [pwSaving, setPwSaving] = useState(false)
   const [pwMsg, setPwMsg]     = useState('')
+
+  const [botToken, setBotToken]   = useState('')
+  const [botSaving, setBotSaving] = useState(false)
+  const [botMsg, setBotMsg]       = useState('')
 
   const [dbExporting, setDbExporting]       = useState(false)
   const [dbImporting, setDbImporting]       = useState(false)
@@ -36,6 +40,39 @@ export default function SettingsPage({ onSaved, adminLogin }) {
   const [logsLoading, setLogsLoading] = useState(false)
   const [logsDownloading, setLogsDownloading] = useState(false)
 
+  // CDEK
+  const [cdek, setCdek] = useState({
+    cdek_enabled: false,
+    cdek_test_mode: true,
+    cdek_client_id: '',
+    cdek_client_secret: '',
+    cdek_sender_city_code: '',
+    cdek_sender_address: '',
+    cdek_default_weight: 500,
+  })
+  const [cdekSaving, setCdekSaving] = useState(false)
+  const [cdekCitySearch, setCdekCitySearch] = useState('')
+  const [cdekCities, setCdekCities]         = useState([])
+  const [cdekSearching, setCdekSearching]   = useState(false)
+
+  // Mini App
+  const [miniappUrl, setMiniappUrl] = useState('')
+  const [miniappSaving, setMiniappSaving] = useState(false)
+
+  // i18n
+  const [defaultLang, setDefaultLang] = useState('ru')
+  const [shopLangs, setShopLangs] = useState(['ru'])
+  const [langSaving, setLangSaving] = useState(false)
+
+  // YooKassa
+  const [yoo, setYoo] = useState({
+    yookassa_enabled: false,
+    yookassa_shop_id: '',
+    yookassa_secret_key: '',
+    yookassa_return_url: '',
+  })
+  const [yooSaving, setYooSaving] = useState(false)
+
   useEffect(() => {
     api.getSettings().then(cfg => {
       setShopName(cfg.shop_name || 'Kaza Shop')
@@ -46,6 +83,24 @@ export default function SettingsPage({ onSaved, adminLogin }) {
       setPaymentQrUrl(cfg.payment_qr_url || '')
       setPaymentQrComment(cfg.payment_qr_comment || '')
       setLegalName(cfg.legal_name || '')
+      setCdek({
+        cdek_enabled: cfg.cdek_enabled ?? false,
+        cdek_test_mode: cfg.cdek_test_mode ?? true,
+        cdek_client_id: cfg.cdek_client_id || '',
+        cdek_client_secret: cfg.cdek_client_secret || '',
+        cdek_sender_city_code: cfg.cdek_sender_city_code ?? '',
+        cdek_sender_address: cfg.cdek_sender_address || '',
+        cdek_default_weight: cfg.cdek_default_weight ?? 500,
+      })
+      setMiniappUrl(cfg.miniapp_url || '')
+      setDefaultLang(cfg.default_language || 'ru')
+      setShopLangs((cfg.shop_languages || 'ru').split(',').map(s => s.trim()).filter(Boolean))
+      setYoo({
+        yookassa_enabled: cfg.yookassa_enabled ?? false,
+        yookassa_shop_id: cfg.yookassa_shop_id || '',
+        yookassa_secret_key: cfg.yookassa_secret_key || '',
+        yookassa_return_url: cfg.yookassa_return_url || '',
+      })
     }).catch(() => {})
     api.getFaq().then(setFaq).catch(() => {})
   }, [])
@@ -70,22 +125,114 @@ export default function SettingsPage({ onSaved, adminLogin }) {
 
   // Password change
   async function saveCredentials() {
-    if (!pwForm.new_login || !pwForm.new_password || !pwForm.current_password) {
+    if (!pwForm.new_password || !pwForm.current_password) {
       setPwMsg('Заполните все поля'); return
     }
     setPwSaving(true); setPwMsg('')
     try {
-      const res = await api.updateCredentials({
-        new_login: pwForm.new_login,
-        new_password: pwForm.new_password,
-        current_password: pwForm.current_password,
-      })
-      localStorage.setItem('admin_token', res.token)
-      setPwMsg('✅ Данные обновлены')
-      setPwForm({ current_password:'', new_login: res.login, new_password:'' })
+      await api.changePassword(pwForm.current_password, pwForm.new_password)
+      setPwMsg('✅ Пароль изменён. Выполните повторный вход.')
+      setPwForm({ current_password:'', new_password:'' })
     } catch(e) {
       setPwMsg('❌ ' + e.message)
     } finally { setPwSaving(false) }
+  }
+
+  // Bot token
+  async function saveBotToken() {
+    if (!botToken.trim() || !shopId) return
+    setBotSaving(true); setBotMsg('')
+    try {
+      await api.setShopBotToken(shopId, botToken)
+      setBotMsg('✅ Токен сохранён')
+      setBotToken('')
+    } catch(e) {
+      setBotMsg('❌ ' + e.message)
+    } finally { setBotSaving(false) }
+  }
+
+  // CDEK
+  async function saveCdek() {
+    setCdekSaving(true)
+    try {
+      const payload = {
+        cdek_enabled: cdek.cdek_enabled,
+        cdek_test_mode: cdek.cdek_test_mode,
+        cdek_client_id: cdek.cdek_client_id || null,
+        cdek_sender_city_code: cdek.cdek_sender_city_code ? parseInt(cdek.cdek_sender_city_code) : null,
+        cdek_sender_address: cdek.cdek_sender_address || null,
+        cdek_default_weight: parseInt(cdek.cdek_default_weight) || 500,
+      }
+      // только если секрет изменён (не маскированное значение)
+      if (cdek.cdek_client_secret && !cdek.cdek_client_secret.startsWith('••••')) {
+        payload.cdek_client_secret = cdek.cdek_client_secret
+      }
+      await api.updateSettings(payload)
+      toast('Настройки СДЭК сохранены', 'success')
+    } catch(e) { toast(e.message, 'error') }
+    finally { setCdekSaving(false) }
+  }
+
+  // Mini App
+  async function saveMiniappUrl() {
+    setMiniappSaving(true)
+    try {
+      await api.updateSettings({ miniapp_url: miniappUrl || null })
+      toast('URL Mini App сохранён', 'success')
+    } catch(e) { toast(e.message, 'error') }
+    finally { setMiniappSaving(false) }
+  }
+
+  // i18n
+  async function saveLangSettings() {
+    setLangSaving(true)
+    try {
+      await api.updateSettings({
+        default_language: defaultLang,
+        shop_languages: shopLangs.join(',') || 'ru',
+      })
+      toast('Языковые настройки сохранены', 'success')
+    } catch(e) { toast(e.message, 'error') }
+    finally { setLangSaving(false) }
+  }
+
+  function toggleShopLang(code) {
+    setShopLangs(prev => {
+      if (prev.includes(code)) {
+        // keep at least one
+        return prev.length > 1 ? prev.filter(l => l !== code) : prev
+      }
+      return [...prev, code]
+    })
+  }
+
+  // YooKassa
+  async function saveYoo() {
+    setYooSaving(true)
+    try {
+      const payload = {
+        yookassa_enabled: yoo.yookassa_enabled,
+        yookassa_shop_id: yoo.yookassa_shop_id || null,
+        yookassa_return_url: yoo.yookassa_return_url || null,
+      }
+      // Не отправляем замаскированный секрет обратно
+      if (yoo.yookassa_secret_key && !yoo.yookassa_secret_key.startsWith('••••')) {
+        payload.yookassa_secret_key = yoo.yookassa_secret_key
+      }
+      await api.updateSettings(payload)
+      toast('Настройки ЮКасса сохранены', 'success')
+    } catch(e) { toast(e.message, 'error') }
+    finally { setYooSaving(false) }
+  }
+
+  async function searchCdekCity() {
+    if (cdekCitySearch.length < 2) return
+    setCdekSearching(true)
+    try {
+      const cities = await api.searchCdekCities(cdekCitySearch)
+      setCdekCities(cities || [])
+    } catch(e) { toast('Ошибка поиска города: ' + e.message, 'error') }
+    finally { setCdekSearching(false) }
   }
 
   // FAQ
@@ -201,7 +348,7 @@ export default function SettingsPage({ onSaved, adminLogin }) {
             try {
               const fd = new FormData()
               fd.append('file', f)
-              const token = localStorage.getItem('admin_token')
+              const token = localStorage.getItem(api.TOKEN_KEY)
               const res = await fetch(`${api.BASE}/settings/stamp`, {
                 method: 'POST',
                 headers: { Authorization: `Bearer ${token}` },
@@ -234,7 +381,7 @@ export default function SettingsPage({ onSaved, adminLogin }) {
               try {
                 const fd = new FormData()
                 fd.append('file', f)
-                const token = localStorage.getItem('admin_token')
+                const token = localStorage.getItem(api.TOKEN_KEY)
                 const res = await fetch(`${api.BASE}/settings/payment-qr`, {
                   method: 'POST',
                   headers: { Authorization: `Bearer ${token}` },
@@ -275,6 +422,174 @@ export default function SettingsPage({ onSaved, adminLogin }) {
         </button>
       </section>
 
+      {/* CDEK */}
+      {!isSuperAdmin && (
+        <section className={s.section}>
+          <h2 className={s.sectionTitle}>📦 Доставка СДЭК</h2>
+
+          <label className={s.checkLabel}>
+            <input type="checkbox" checked={cdek.cdek_enabled}
+              onChange={e => setCdek(c => ({...c, cdek_enabled: e.target.checked}))} />
+            Включить доставку через СДЭК в боте
+          </label>
+
+          <label className={s.checkLabel} style={{marginTop: 6}}>
+            <input type="checkbox" checked={cdek.cdek_test_mode}
+              onChange={e => setCdek(c => ({...c, cdek_test_mode: e.target.checked}))} />
+            Тестовый режим (api.edu.cdek.ru)
+          </label>
+
+          <div className={s.row2}>
+            <label className={s.label}>Client ID
+              <input className={s.input} value={cdek.cdek_client_id}
+                onChange={e => setCdek(c => ({...c, cdek_client_id: e.target.value}))}
+                placeholder="EMscd6r9JnFiQ3bLoyjJY6eM" />
+            </label>
+            <label className={s.label}>Client Secret
+              <input className={s.input} type="password" value={cdek.cdek_client_secret}
+                onChange={e => setCdek(c => ({...c, cdek_client_secret: e.target.value}))}
+                placeholder={cdek.cdek_client_secret?.startsWith('••••') ? 'Уже задан (••••)' : 'Введите секрет'}
+                autoComplete="new-password" />
+            </label>
+          </div>
+
+          <label className={s.label} style={{marginBottom: 4}}>Город отправки (СДЭК)</label>
+          <div style={{display:'flex', gap: 8, marginBottom: 8}}>
+            <input className={s.input} style={{flex:1}} value={cdekCitySearch}
+              onChange={e => setCdekCitySearch(e.target.value)}
+              placeholder="Введите название города…"
+              onKeyDown={e => e.key === 'Enter' && searchCdekCity()} />
+            <button className={s.btnSmall} onClick={searchCdekCity} disabled={cdekSearching}>
+              {cdekSearching ? '…' : 'Найти'}
+            </button>
+          </div>
+          {cdekCities.length > 0 && (
+            <div className={s.cityList}>
+              {cdekCities.map(c => (
+                <div key={c.code} className={s.cityItem}
+                  onClick={() => {
+                    setCdek(d => ({...d, cdek_sender_city_code: String(c.code)}))
+                    setCdekCities([])
+                    setCdekCitySearch(`${c.city}${c.region ? ', ' + c.region : ''} (код: ${c.code})`)
+                  }}>
+                  {c.city}{c.region ? ', ' + c.region : ''} — <code>{c.code}</code>
+                </div>
+              ))}
+            </div>
+          )}
+          {cdek.cdek_sender_city_code && (
+            <div className={s.infoChip}>Код города: <b>{cdek.cdek_sender_city_code}</b></div>
+          )}
+
+          <label className={s.label} style={{marginTop: 10}}>Адрес отправки (склад/офис)
+            <input className={s.input} value={cdek.cdek_sender_address}
+              onChange={e => setCdek(c => ({...c, cdek_sender_address: e.target.value}))}
+              placeholder="ул. Примерная, д. 1, офис 5" />
+          </label>
+
+          <label className={s.label}>Вес посылки по умолчанию (г)
+            <input className={s.input} type="number" min={50} max={31000}
+              value={cdek.cdek_default_weight}
+              onChange={e => setCdek(c => ({...c, cdek_default_weight: e.target.value}))} />
+          </label>
+
+          <button className={s.btnSave} onClick={saveCdek} disabled={cdekSaving}>
+            {cdekSaving ? 'Сохранение…' : 'Сохранить настройки СДЭК'}
+          </button>
+        </section>
+      )}
+
+      {/* Mini App */}
+      {!isSuperAdmin && (
+        <section className={s.section}>
+          <h2 className={s.sectionTitle}>🛍 Telegram Mini App</h2>
+          <p style={{fontSize:13, color:'#777', marginBottom:10}}>
+            HTTPS-ссылка на Mini App, которая будет открываться кнопкой «Открыть магазин» в боте.
+            Оставьте пустым, чтобы скрыть кнопку.
+          </p>
+          <label className={s.label}>URL Mini App
+            <input className={s.input} value={miniappUrl}
+              onChange={e => setMiniappUrl(e.target.value)}
+              placeholder="https://example.com/miniapp/?shop_id=1" />
+          </label>
+          <button className={s.btnSave} onClick={saveMiniappUrl} disabled={miniappSaving}>
+            {miniappSaving ? 'Сохранение…' : 'Сохранить URL Mini App'}
+          </button>
+        </section>
+      )}
+
+      {/* i18n / Language */}
+      {!isSuperAdmin && (
+        <section className={s.section}>
+          <h2 className={s.sectionTitle}>🌐 Язык бота</h2>
+          <p style={{fontSize:13, color:'#777', marginBottom:12}}>
+            Выберите языки, доступные покупателям. Язык по умолчанию используется,
+            если у пользователя нет сохранённых предпочтений.
+          </p>
+
+          <label className={s.label} style={{marginBottom:8}}>Языки магазина</label>
+          {[['ru','🇷🇺 Русский'],['en','🇬🇧 English'],['kk','🇰🇿 Қазақша']].map(([code, label]) => (
+            <label key={code} className={s.toggleRow} style={{marginBottom:6}}>
+              <input type="checkbox"
+                checked={shopLangs.includes(code)}
+                onChange={() => toggleShopLang(code)} />
+              {label}
+            </label>
+          ))}
+
+          <label className={s.label} style={{marginTop:14}}>Язык по умолчанию
+            <select className={s.input} value={defaultLang} onChange={e => setDefaultLang(e.target.value)}>
+              {shopLangs.map(code => (
+                <option key={code} value={code}>
+                  {code === 'ru' ? '🇷🇺 Русский' : code === 'en' ? '🇬🇧 English' : '🇰🇿 Қазақша'}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <button className={s.btnSave} onClick={saveLangSettings} disabled={langSaving}>
+            {langSaving ? 'Сохранение…' : 'Сохранить языки'}
+          </button>
+        </section>
+      )}
+
+      {/* YooKassa */}
+      {!isSuperAdmin && (
+        <section className={s.section}>
+          <h2 className={s.sectionTitle}>💳 ЮКасса — онлайн-оплата</h2>
+
+          <label className={s.toggleRow}>
+            <input type="checkbox" checked={yoo.yookassa_enabled}
+              onChange={e => setYoo(y => ({...y, yookassa_enabled: e.target.checked}))} />
+            Включить онлайн-оплату через ЮКасса
+          </label>
+
+          {yoo.yookassa_enabled && (<>
+            <label className={s.label}>Shop ID (числовой идентификатор магазина ЮКасса)
+              <input className={s.input} value={yoo.yookassa_shop_id}
+                onChange={e => setYoo(y => ({...y, yookassa_shop_id: e.target.value}))}
+                placeholder="123456" />
+            </label>
+
+            <label className={s.label}>Secret Key
+              <input className={s.input} type="password" value={yoo.yookassa_secret_key}
+                onChange={e => setYoo(y => ({...y, yookassa_secret_key: e.target.value}))}
+                placeholder={yoo.yookassa_secret_key?.startsWith('••••') ? 'Уже задан (••••)' : 'test_…  или  live_…'} />
+            </label>
+
+            <label className={s.label}>URL возврата после оплаты (сайт или t.me/ваш_бот)
+              <input className={s.input} value={yoo.yookassa_return_url}
+                onChange={e => setYoo(y => ({...y, yookassa_return_url: e.target.value}))}
+                placeholder="https://t.me/mybot" />
+            </label>
+          </>)}
+
+          <button className={s.btnSave} onClick={saveYoo} disabled={yooSaving}>
+            {yooSaving ? 'Сохранение…' : 'Сохранить настройки ЮКасса'}
+          </button>
+        </section>
+      )}
+
       {/* FAQ */}
       <section className={s.section}>
         <h2 className={s.sectionTitle}>FAQ для бота</h2>
@@ -314,30 +629,42 @@ export default function SettingsPage({ onSaved, adminLogin }) {
         </div>
       </section>
 
-      {/* Смена логина/пароля */}
+      {/* Telegram бот (только для владельцев) */}
+      {!isSuperAdmin && (
+        <section className={s.section}>
+          <h2 className={s.sectionTitle}>Telegram бот</h2>
+          <p className={s.hint}>
+            Токен бота из <a href="https://t.me/BotFather" target="_blank" rel="noopener noreferrer">@BotFather</a>.
+            После сохранения сервис автоматически перезапустит бота с новым токеном.
+          </p>
+          <label className={s.label}>Новый токен
+            <input type="password" className={s.input}
+              value={botToken} onChange={e=>setBotToken(e.target.value)}
+              placeholder="123456789:AAFxxxx..." autoComplete="off" />
+          </label>
+          {botMsg && <p className={s.pwMsg}>{botMsg}</p>}
+          <button className={s.btnSave} onClick={saveBotToken} disabled={botSaving || !botToken}>
+            {botSaving ? 'Сохранение...' : 'Сохранить токен'}
+          </button>
+        </section>
+      )}
+
+      {/* Безопасность */}
       <section className={s.section}>
         <h2 className={s.sectionTitle}>Безопасность</h2>
-        <p className={s.hint}>Текущий логин: <b>{adminLogin}</b></p>
-        <div style={{position:'absolute',opacity:0,height:0,overflow:'hidden'}}>
-          <input type="text" name="fake_username2" autoComplete="username" tabIndex="-1" />
-          <input type="password" name="fake_password2" autoComplete="current-password" tabIndex="-1" />
-        </div>
+        <p className={s.hint}>Аккаунт: <b>{userEmail}</b></p>
         <label className={s.label}>Текущий пароль
           <input type="password" className={s.input} value={pwForm.current_password}
             onChange={e=>setPwForm(f=>({...f,current_password:e.target.value}))} autoComplete="current-password" />
         </label>
-        <label className={s.label}>Новый логин
-          <input className={s.input} value={pwForm.new_login}
-            onChange={e=>setPwForm(f=>({...f,new_login:e.target.value}))} placeholder="Минимум 3 символа" />
-        </label>
         <label className={s.label}>Новый пароль
           <input type="password" className={s.input} value={pwForm.new_password}
             onChange={e=>setPwForm(f=>({...f,new_password:e.target.value}))}
-            placeholder="Минимум 8 символов, буквы и цифры" autoComplete="new-password" />
+            placeholder="Минимум 10 символов, буква и цифра" autoComplete="new-password" />
         </label>
         {pwMsg && <p className={s.pwMsg}>{pwMsg}</p>}
         <button className={s.btnSave} onClick={saveCredentials} disabled={pwSaving}>
-          {pwSaving ? 'Сохранение...' : 'Изменить данные входа'}
+          {pwSaving ? 'Сохранение...' : 'Изменить пароль'}
         </button>
       </section>
 

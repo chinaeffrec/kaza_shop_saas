@@ -41,6 +41,7 @@ from app.api.schemas.shop import (
 )
 from app.db.session import get_session
 from app.services import shop_service as svc
+from app.services.audit_service import audit_log
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/platform/shops", tags=["platform-shops"])
@@ -95,8 +96,14 @@ async def update_shop(
 async def delete_shop(
     shop_id: int,
     session: AsyncSession = Depends(get_session),
-    _: PlatformAuthContext = Depends(require_super_admin),
+    ctx: PlatformAuthContext = Depends(require_super_admin),
 ):
+    await audit_log(
+        session=session, actor=ctx,
+        action="shop.deleted",
+        entity_type="shop", entity_id=str(shop_id),
+        shop_id=shop_id,
+    )
     await svc.delete_shop(shop_id, session)
 
 
@@ -130,9 +137,18 @@ async def set_status(
     shop_id: int,
     data: ShopStatusUpdate,
     session: AsyncSession = Depends(get_session),
-    _: PlatformAuthContext = Depends(require_super_admin),
+    ctx: PlatformAuthContext = Depends(require_super_admin),
 ):
-    return await svc.set_status(shop_id, data.status, session)
+    shop = await svc.get_shop(shop_id, session)
+    result = await svc.set_status(shop_id, data.status, session)
+    await audit_log(
+        session=session, actor=ctx,
+        action="shop.status_changed",
+        entity_type="shop", entity_id=str(shop_id),
+        before={"status": shop.status}, after={"status": data.status},
+        shop_id=shop_id,
+    )
+    return result
 
 
 # ── Plan ──────────────────────────────────────────────────────────────────────

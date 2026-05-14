@@ -1,14 +1,287 @@
-.layout { display: flex; min-height: 100vh; }
-.sidebar { background: #1e1e2e; color: #cdd6f4; display: flex; flex-direction: column; flex-shrink: 0; min-width: 180px; width: max-content; }
-.logo { display: flex; align-items: center; gap: 10px; padding: 18px 16px 14px; border-bottom: 1px solid #313244; min-height: 56px; }
-.logoText { font-size: 16px; font-weight: 600; color: #cba6f7; white-space: nowrap; }
-.navBtn { display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; text-align: left; padding: 11px 16px; background: transparent; color: #cdd6f4; font-size: 14px; white-space: nowrap; transition: background .15s; border: none; cursor: pointer; }
-.navBtn:hover { background: #313244; }
-.navBtn.active { background: #313244; color: #cba6f7; font-weight: 500; }
-.navLabel { overflow: hidden; text-overflow: ellipsis; }
-.navBadge { min-width: 20px; height: 20px; padding: 0 6px; border-radius: 999px; display: inline-flex; align-items: center; justify-content: center; background: #f38ba8; color: #1e1e2e; font-size: 11px; font-weight: 700; }
-.sideFooter { margin-top: auto; padding: 12px 16px; border-top: 1px solid #313244; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.adminLabel { font-size: 12px; color: #888; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.logoutBtn { background: #313244; color: #cdd6f4; border: none; border-radius: 6px; padding: 4px 10px; font-size: 12px; cursor: pointer; white-space: nowrap; }
+/* ── Shell layout ──────────────────────────────────────────────────────────── */
+.layout {
+  display: flex;
+  min-height: 100vh;
+  background: var(--bg-page);
+}
+
+/* ── Sidebar ───────────────────────────────────────────────────────────────── */
+.sidebar {
+  background: var(--sidebar-bg);
+  color: var(--sidebar-text);
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  width: var(--sidebar-width);
+  transition: width var(--transition);
+  overflow: hidden;
+  position: relative;
+  z-index: 20;
+}
+
+/* ── Logo / header ─────────────────────────────────────────────────────────── */
+.logo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 16px 14px 14px;
+  border-bottom: 1px solid var(--sidebar-border);
+  min-height: 56px;
+  flex-shrink: 0;
+}
+
+.logoText {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--sidebar-accent);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+}
+
+.logoIcon {
+  font-size: 20px;
+  flex-shrink: 0;
+}
+
+/* ── Nav buttons ───────────────────────────────────────────────────────────── */
+.nav {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 6px 0;
+}
+
+.navBtn {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+  padding: 11px 14px;
+  background: transparent;
+  color: var(--sidebar-text);
+  font-size: 13.5px;
+  white-space: nowrap;
+  transition: background var(--transition), color var(--transition);
+  border: none;
+  cursor: pointer;
+  border-radius: 0;
+}
+
+.navBtn:hover { background: var(--sidebar-hover); }
+.navBtn.active {
+  background: var(--sidebar-hover);
+  color: var(--sidebar-accent);
+  font-weight: 600;
+}
+
+.navLabel {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+}
+
+.navBadge {
+  min-width: 20px;
+  height: 20px;
+  padding: 0 5px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--badge-bg);
+  color: var(--badge-text);
+  font-size: 11px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+/* ── Sidebar footer ────────────────────────────────────────────────────────── */
+.sideFooter {
+  margin-top: auto;
+  padding: 10px 12px;
+  border-top: 1px solid var(--sidebar-border);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.sideFooterRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.adminLabel {
+  font-size: 11.5px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+}
+
+.footerActions {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.logoutBtn {
+  background: var(--sidebar-hover);
+  color: var(--sidebar-text);
+  border: none;
+  border-radius: var(--radius-sm);
+  padding: 4px 10px;
+  font-size: 11.5px;
+  cursor: pointer;
+  transition: background var(--transition);
+  white-space: nowrap;
+}
 .logoutBtn:hover { background: #45475a; }
-.main { flex: 1; padding: 28px 32px; overflow-y: auto; min-width: 0; }
+
+.themeBtn {
+  background: var(--sidebar-hover);
+  color: var(--sidebar-text);
+  border: none;
+  border-radius: var(--radius-sm);
+  padding: 4px 8px;
+  font-size: 14px;
+  cursor: pointer;
+  transition: background var(--transition);
+  flex-shrink: 0;
+}
+.themeBtn:hover { background: #45475a; }
+
+.profileBtn {
+  background: transparent;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  border-radius: 50%;
+  flex-shrink: 0;
+  transition: opacity var(--transition);
+}
+.profileBtn:hover { opacity: 0.8; }
+
+/* ── Main content ──────────────────────────────────────────────────────────── */
+.main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.mainScroll {
+  flex: 1;
+  padding: 26px 30px;
+  overflow-y: auto;
+}
+
+/* ── Responsive: tablet (≤900px) ──────────────────────────────────────────── */
+@media (max-width: 900px) {
+  .sidebar {
+    width: 56px;
+  }
+
+  .logoText,
+  .navLabel,
+  .adminLabel,
+  .footerActions {
+    display: none;
+  }
+
+  .logo {
+    justify-content: center;
+    padding: 14px 0;
+  }
+
+  .navBtn {
+    justify-content: center;
+    padding: 12px 0;
+  }
+
+  .navBadge {
+    position: absolute;
+    right: 4px;
+    top: 4px;
+    width: 14px;
+    height: 14px;
+    min-width: 14px;
+    font-size: 9px;
+  }
+
+  .navBtn { position: relative; }
+
+  .sideFooter {
+    padding: 8px 4px;
+    align-items: center;
+  }
+
+  .sideFooterRow {
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .logoutBtn {
+    padding: 6px;
+    font-size: 12px;
+  }
+  .themeBtn {
+    font-size: 15px;
+  }
+
+  .mainScroll {
+    padding: 16px 14px;
+  }
+}
+
+/* ── Impersonation / broadcast banners ──────────────────────────────────────── */
+.impersonationBanner {
+  background: #fef3c7;
+  border-bottom: 2px solid #f59e0b;
+  padding: 8px 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 13px;
+  color: #92400e;
+  flex-shrink: 0;
+}
+[data-theme="dark"] .impersonationBanner {
+  background: #2d1f00;
+  border-color: #b45309;
+  color: #fcd34d;
+}
+
+.impersonationBannerBtn {
+  padding: 4px 14px;
+  background: #f59e0b;
+  color: #fff;
+  border: none;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.broadcastBanner {
+  background: #eff6ff;
+  border-bottom: 1px solid #bfdbfe;
+  padding: 8px 20px;
+  font-size: 13px;
+  color: #1d4ed8;
+  flex-shrink: 0;
+}
+[data-theme="dark"] .broadcastBanner {
+  background: #0f1f40;
+  border-color: #1e40af;
+  color: #93c5fd;
+}

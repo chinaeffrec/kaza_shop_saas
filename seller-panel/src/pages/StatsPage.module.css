@@ -1,30 +1,88 @@
-.toolbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px}
-.title{font-size:22px;font-weight:600}
-.btnRefresh{background:#f0f0f0;padding:7px 14px;border-radius:8px;font-size:13px;border:none;cursor:pointer}
-.btnRefresh:disabled{opacity:.6}
-.msg{color:#aaa;text-align:center;margin-top:40px}
-.filters{display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap}
-.dateLabel{display:flex;align-items:center;gap:6px;font-size:13px;color:#555}
-.dateInput{padding:6px 10px;border:1px solid #ddd;border-radius:8px;font-size:13px}
-.btnApply{background:#6c63ff;color:#fff;padding:7px 16px;border-radius:8px;font-size:13px;border:none;cursor:pointer}
-.btnReset{background:#f0f0f0;color:#555;padding:7px 14px;border-radius:8px;font-size:13px;border:none;cursor:pointer}
-.tabs{display:flex;gap:6px;margin-bottom:20px}
-.tab{padding:8px 18px;border-radius:8px;background:#f0f0f0;color:#555;font-size:13px;border:none;cursor:pointer}
-.tab:hover{background:#e0e0e0}
-.activeTab{background:#6c63ff;color:#fff}
-.summary{display:flex;gap:12px;margin-bottom:24px;flex-wrap:wrap}
-.card{background:#fff;border-radius:12px;padding:16px 20px;min-width:130px;box-shadow:0 1px 4px rgba(0,0,0,.07)}
-.cardVal{font-size:22px;font-weight:600;color:#6c63ff}
-.cardLabel{font-size:12px;color:#888;margin-top:4px}
-.topSection{margin-bottom:24px}
-.sectionTitle{font-size:16px;font-weight:600;margin-bottom:12px;color:#333}
-.table{width:100%;border-collapse:collapse;background:#fff;border-radius:10px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,.08)}
-.table th{background:#f8f8f8;text-align:left;padding:10px 14px;font-weight:500;color:#555;border-bottom:1px solid #eee;font-size:13px}
-.table td{padding:10px 14px;border-bottom:1px solid #f0f0f0;font-size:14px}
-.table tr:last-child td{border-bottom:none}
-.sortable{cursor:pointer;user-select:none}
-.sortable:hover{background:#f0f0f0}
-.rank{color:#aaa;font-size:13px;font-weight:500;text-align:center;width:32px}
-.num{text-align:right;font-variant-numeric:tabular-nums}
-.warn{color:#c62828;font-weight:500}
-.btnReturn{background:#fce4e4;border-radius:6px;padding:4px 8px;font-size:13px;border:none;cursor:pointer}
+/* ── Base layout ─────────────────────────────────────────────────────────── */
+.toolbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+.title { font-size: 22px; font-weight: 600; }
+.btnRefresh { background: #f0f0f0; padding: 7px 14px; border-radius: 8px; font-size: 13px; border: none; cursor: pointer; }
+.btnRefresh:disabled { opacity: .6; }
+.msg { color: #aaa; text-align: center; margin: 24px 0; }
+.muted { color: #aaa; font-size: 13px; }
+
+/* ── Filters ─────────────────────────────────────────────────────────────── */
+.filters { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
+.dateLabel { display: flex; align-items: center; gap: 6px; font-size: 13px; color: #555; }
+.dateInput { padding: 6px 10px; border: 1px solid #ddd; border-radius: 8px; font-size: 13px; }
+.btnApply { background: #6c63ff; color: #fff; padding: 7px 16px; border-radius: 8px; font-size: 13px; border: none; cursor: pointer; transition: background .2s; }
+.btnApply:hover { background: #5a52d5; }
+.btnGreen { background: #43a047 !important; }
+.btnGreen:hover { background: #388e3c !important; }
+.btnReset { background: #f0f0f0; color: #555; padding: 7px 14px; border-radius: 8px; font-size: 13px; border: none; cursor: pointer; }
+.actionRow { margin-bottom: 16px; display: flex; gap: 10px; flex-wrap: wrap; }
+
+/* ── Tabs ────────────────────────────────────────────────────────────────── */
+.tabs { display: flex; gap: 6px; margin-bottom: 20px; flex-wrap: wrap; }
+.tab { padding: 8px 18px; border-radius: 8px; background: #f0f0f0; color: #555; font-size: 13px; border: none; cursor: pointer; }
+.tab:hover { background: #e0e0e0; }
+.activeTab { background: #6c63ff; color: #fff; }
+
+/* ── KPI cards ───────────────────────────────────────────────────────────── */
+.summary { display: flex; gap: 12px; margin-bottom: 24px; flex-wrap: wrap; }
+.card { background: #fff; border-radius: 12px; padding: 16px 20px; min-width: 130px; box-shadow: 0 1px 4px rgba(0,0,0,.07); }
+.cardVal { font-size: 22px; font-weight: 600; color: #6c63ff; }
+.cardLabel { font-size: 12px; color: #888; margin-top: 4px; }
+
+/* ── Tables ──────────────────────────────────────────────────────────────── */
+.topSection { margin-bottom: 24px; }
+.sectionTitle { font-size: 16px; font-weight: 600; margin-bottom: 12px; color: #333; }
+.table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 10px; overflow: hidden; box-shadow: 0 1px 4px rgba(0,0,0,.08); }
+.table th { background: #f8f8f8; text-align: left; padding: 10px 14px; font-weight: 500; color: #555; border-bottom: 1px solid #eee; font-size: 13px; }
+.table td { padding: 10px 14px; border-bottom: 1px solid #f0f0f0; font-size: 14px; }
+.table tr:last-child td { border-bottom: none; }
+.sortable { cursor: pointer; user-select: none; }
+.sortable:hover { background: #f0f0f0; }
+.rank { color: #aaa; font-size: 13px; font-weight: 500; }
+.num { text-align: right; font-variant-numeric: tabular-nums; }
+.warn { color: #c62828; font-weight: 500; }
+.btnReturn { background: #fce4e4; border-radius: 6px; padding: 4px 8px; font-size: 13px; border: none; cursor: pointer; }
+
+/* ── Status grid ─────────────────────────────────────────────────────────── */
+.statusGrid { display: flex; gap: 10px; flex-wrap: wrap; }
+.statusCard {
+  background: #fff; border-radius: 10px; padding: 12px 16px;
+  box-shadow: 0 1px 4px rgba(0,0,0,.07); display: flex; flex-direction: column; gap: 4px; min-width: 120px;
+}
+.statusLabel { font-size: 12px; color: #888; }
+.statusCount { font-size: 20px; font-weight: 700; color: #1a1a2e; }
+
+/* ── Chart ───────────────────────────────────────────────────────────────── */
+.chartControls { display: flex; gap: 12px; margin-bottom: 20px; flex-wrap: wrap; }
+.segmented { display: flex; border: 1.5px solid #e0e0e0; border-radius: 8px; overflow: hidden; }
+.seg { background: #fff; color: #555; border: none; padding: 7px 14px; font-size: 13px; cursor: pointer; transition: background .15s, color .15s; }
+.seg:hover { background: #f5f5ff; }
+.segActive { background: #6c63ff; color: #fff; }
+
+.chartWrap { background: #fff; border-radius: 12px; padding: 20px 16px; box-shadow: 0 1px 4px rgba(0,0,0,.07); margin-bottom: 4px; overflow-x: auto; }
+.chart { min-width: 400px; width: 100%; }
+
+/* ── Cohort analysis ─────────────────────────────────────────────────────── */
+.cohortGrid { display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 20px; }
+.cohortCard {
+  background: #fff; border-radius: 12px; padding: 24px;
+  box-shadow: 0 1px 4px rgba(0,0,0,.07); flex: 1 1 320px;
+}
+.cohortTitle { font-size: 16px; font-weight: 600; margin: 0 0 20px; color: #1a1a2e; }
+
+.ringRow { display: flex; gap: 24px; justify-content: center; margin-bottom: 20px; }
+.ringWrap { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.ringLabel { font-size: 12px; color: #888; font-weight: 500; }
+
+.cohortStats { display: flex; gap: 16px; justify-content: center; flex-wrap: wrap; }
+.cohortStat { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.cohortStatVal { font-size: 24px; font-weight: 700; color: #1a1a2e; }
+.cohortStatLabel { font-size: 11px; color: #aaa; text-align: center; }
+
+.avgGrid { display: flex; align-items: center; justify-content: center; gap: 0; margin: 20px 0; }
+.avgBlock { display: flex; flex-direction: column; align-items: center; gap: 8px; flex: 1; }
+.avgVal { font-size: 40px; font-weight: 700; }
+.avgLabel { font-size: 12px; color: #888; text-align: center; line-height: 1.4; }
+.avgDivider { width: 1px; height: 60px; background: #f0f0f0; }
+
+.cohortHint { font-size: 13px; color: #888; margin-top: 12px; text-align: center; line-height: 1.5; }

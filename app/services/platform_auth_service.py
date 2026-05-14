@@ -34,41 +34,29 @@ _cfg = get_settings()
 # ── Rate limiting ──────────────────────────────────────────────────────────────
 _RATE_LIMIT_MAX = 5
 _RATE_LIMIT_WINDOW = 60
-_login_attempts: dict[str, list[float]] = {}  # in-memory fallback
 
 
 async def check_login_rate_limit(ip: str) -> tuple[bool, int]:
     """
     Возвращает (allowed, retry_after_seconds).
-    Используется Redis; при недоступности — in-memory fallback.
+    Использует только Redis — fallback-in-memory намеренно удалён (B6):
+    если Redis недоступен, логин не работает, что лучше чем обходить rate limit.
     """
     key = f"rl:platform_login:{ip}"
-
     count = await redis_incr(key)
-    if count is not None:
-        if count == 1:
-            await redis_expire(key, _RATE_LIMIT_WINDOW)
-        if count > _RATE_LIMIT_MAX:
-            ttl = max(await redis_ttl(key), 1)
-            return False, ttl
-        return True, 0
-
-    # in-memory fallback
-    now = time.time()
-    attempts = [t for t in _login_attempts.get(ip, []) if now - t < _RATE_LIMIT_WINDOW]
-    if len(attempts) >= _RATE_LIMIT_MAX:
-        retry_after = int(_RATE_LIMIT_WINDOW - (now - attempts[0]))
-        return False, retry_after
-    attempts.append(now)
-    _login_attempts[ip] = attempts
+    if count is None:
+        # Redis недоступен — отказываем с 503 (вызывающий код обрабатывает None)
+        return False, -1
+    if count == 1:
+        await redis_expire(key, _RATE_LIMIT_WINDOW)
+    if count > _RATE_LIMIT_MAX:
+        ttl = max(await redis_ttl(key), 1)
+        return False, ttl
     return True, 0
 
 
 async def clear_login_rate_limit(ip: str) -> None:
-    key = f"rl:platform_login:{ip}"
-    deleted = await redis_delete(key)
-    if not deleted:
-        _login_attempts.pop(ip, None)
+    await redis_delete(f"rl:platform_login:{ip}")
 
 
 # ── Пароли ────────────────────────────────────────────────────────────────────
@@ -84,24 +72,32 @@ def verify_password(password: str, hashed: str) -> bool:
 
 
 # ── JWT (access token) ────────────────────────────────────────────────────────
-def _require_secret() -> str:
-    if not _cfg.secret_key:
-        raise RuntimeError("SECRET_KEY must be set in environment")
-    return _cfg.secret_key
+def _require_platform_secret() -> str:
+    """
+    Использует PLATFORM_JWT_SECRET (приоритет) или SECRET_KEY как fallback.
+    В продакшене PLATFORM_JWT_SECRET обязателен — задаётся отдельно от
+    legacy SECRET_KEY, чтобы ротация одного не инвалидировала другой.
+    """
+    secret = _cfg.platform_jwt_secret or _cfg.secret_key
+    if not secret:
+        raise RuntimeError("PLATFORM_JWT_SECRET (or SECRET_KEY) must be set in environment")
+    return secret
 
 
 def create_access_token(
     user_id: int,
     role: str,
     shop_id: Optional[int],
+    email: str = "",
     jti: Optional[str] = None,
 ) -> str:
-    secret = _require_secret()
+    secret = _require_platform_secret()
     now = datetime.now(timezone.utc)
     payload = {
         "sub": str(user_id),
         "role": role,
         "shop_id": shop_id,
+        "email": email,
         "iat": int(now.timestamp()),
         "exp": int(now.timestamp()) + _cfg.access_token_ttl,
         "jti": jti or str(uuid.uuid4()),
@@ -115,7 +111,7 @@ def decode_access_token(token: str) -> Optional[dict]:
     Возвращает payload или None при любой ошибке.
     """
     try:
-        return jwt.decode(token, _require_secret(), algorithms=["HS256"])
+        return jwt.decode(token, _require_platform_secret(), algorithms=["HS256"])
     except jwt.ExpiredSignatureError:
         return None
     except jwt.InvalidTokenError:
@@ -264,20 +260,138 @@ async def get_token_claims(
 ) -> tuple[str, Optional[int]]:
     """
     Возвращает (role, shop_id) для включения в JWT.
-    Super admin: ("super_admin", None).
-    Owner: ("owner", shop.id) — берём первый активный магазин.
+
+    Порядок проверки:
+    1. super_admin → ("super_admin", None)
+    2. Есть запись в shop_members → (member.role, member.shop_id)
+    3. Fallback: shop.owner_id (legacy, до наполнения shop_members) → ("owner", shop.id)
+    4. Нет магазина → ("owner", None)
     """
     if user.is_super_admin:
         return "super_admin", None
 
-    result = await session.execute(
+    from app.models.platform import Shop, ShopMember
+
+    # Приоритет: shop_members — поддерживает manager/support роли
+    member_result = await session.execute(
+        select(ShopMember)
+        .where(ShopMember.user_id == user.id)
+        .order_by(ShopMember.created_at)
+        .limit(1)
+    )
+    member = member_result.scalar_one_or_none()
+    if member:
+        return member.role, member.shop_id
+
+    # Fallback для существующих владельцев, у которых ещё нет записи в shop_members
+    shop_result = await session.execute(
         select(Shop)
         .where(Shop.owner_id == user.id, Shop.status != "suspended")
         .order_by(Shop.created_at)
         .limit(1)
     )
-    shop = result.scalar_one_or_none()
+    shop = shop_result.scalar_one_or_none()
     return "owner", shop.id if shop else None
+
+
+# ── 2FA (TOTP) ────────────────────────────────────────────────────────────────
+_TOTP_CHALLENGE_TTL = 300  # 5 минут
+
+
+def _totp_challenge_secret() -> str:
+    return _require_platform_secret()
+
+
+def create_totp_challenge_token(user_id: int) -> str:
+    """Короткоживущий JWT (5 мин) для прохождения второго шага 2FA."""
+    now = datetime.now(timezone.utc)
+    payload = {
+        "sub": str(user_id),
+        "scope": "totp_challenge",
+        "iat": int(now.timestamp()),
+        "exp": int(now.timestamp()) + _TOTP_CHALLENGE_TTL,
+    }
+    return jwt.encode(payload, _totp_challenge_secret(), algorithm="HS256")
+
+
+def decode_totp_challenge_token(token: str) -> Optional[int]:
+    """Возвращает user_id или None при ошибке/истечении/неверном scope."""
+    try:
+        payload = jwt.decode(token, _totp_challenge_secret(), algorithms=["HS256"])
+        if payload.get("scope") != "totp_challenge":
+            return None
+        return int(payload["sub"])
+    except Exception:
+        return None
+
+
+def generate_totp_secret() -> str:
+    """Генерирует новый TOTP-секрет (base32, 32 символа)."""
+    import pyotp
+    return pyotp.random_base32()
+
+
+def get_totp_uri(secret: str, email: str, issuer: str = "Kaza Shop") -> str:
+    """Возвращает otpauth:// URI для QR-кода.
+    `secret` здесь — открытый base32 (ещё не зашифрованный).
+    """
+    import pyotp
+    return pyotp.TOTP(secret).provisioning_uri(name=email, issuer_name=issuer)
+
+
+def verify_totp_code(secret: str, code: str) -> bool:
+    """Проверяет TOTP-код. Допускает ±1 временной интервал (30 сек каждый).
+    `secret` здесь — открытый base32 (уже расшифрованный из БД).
+    """
+    import pyotp
+    try:
+        totp = pyotp.TOTP(secret)
+        return totp.verify(code, valid_window=1)
+    except Exception:
+        return False
+
+
+# ── Шифрование TOTP-секрета (Fernet) ─────────────────────────────────────────
+
+def encrypt_totp_secret(plaintext_secret: str) -> str:
+    """Шифрует открытый TOTP base32-секрет с помощью FERNET_KEY.
+
+    Возвращает строку вида ``enc:<base64-fernet-token>``.
+    Префикс ``enc:`` позволяет отличить зашифрованные значения от
+    устаревших открытых текстов (миграция без потери данных).
+    """
+    from cryptography.fernet import Fernet
+    cfg = get_settings()
+    fernet_key = getattr(cfg, "FERNET_KEY", None)
+    if not fernet_key:
+        # Fernet key not configured — store plaintext as fallback (dev mode only)
+        _log.warning("FERNET_KEY not set — TOTP secret stored unencrypted (development mode only)")
+        return plaintext_secret
+    f = Fernet(fernet_key.encode() if isinstance(fernet_key, str) else fernet_key)
+    return "enc:" + f.encrypt(plaintext_secret.encode()).decode()
+
+
+def decrypt_totp_secret(stored_secret: str) -> str:
+    """Расшифровывает TOTP-секрет из БД.
+
+    Прозрачно обрабатывает оба формата — зашифрованный (``enc:…``) и
+    устаревший открытый текст (обратная совместимость при миграции).
+    """
+    if not stored_secret.startswith("enc:"):
+        # Legacy plaintext value (stored before Fernet was introduced)
+        return stored_secret
+    from cryptography.fernet import Fernet, InvalidToken
+    cfg = get_settings()
+    fernet_key = getattr(cfg, "FERNET_KEY", None)
+    if not fernet_key:
+        _log.error("FERNET_KEY not set but encrypted TOTP secret found in DB")
+        raise ValueError("Cannot decrypt TOTP secret: FERNET_KEY is not configured")
+    try:
+        f = Fernet(fernet_key.encode() if isinstance(fernet_key, str) else fernet_key)
+        return f.decrypt(stored_secret[4:].encode()).decode()
+    except InvalidToken as exc:
+        _log.error("Failed to decrypt TOTP secret — FERNET_KEY mismatch?")
+        raise ValueError("Cannot decrypt TOTP secret") from exc
 
 
 # ── Сид первого суперадмина ───────────────────────────────────────────────────

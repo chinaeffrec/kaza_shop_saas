@@ -22,13 +22,18 @@ from app.bot.handlers.cart import router as cart_router
 from app.bot.handlers.cart_actions import router as cart_actions_router
 from app.bot.handlers.catalog import router as catalog_router
 from app.bot.handlers.faq import router as faq_router
+from app.bot.handlers.language import router as language_router
+from app.bot.handlers.review import router as review_router
 from app.bot.handlers.menu import router as menu_router
 from app.bot.handlers.start import router as start_router
+from app.bot.middlewares.i18n_middleware import I18nMiddleware
 from app.bot.services.catalog_cache import CatalogCache
 from app.core.config import get_settings
 from app.core.encryption import decrypt_field
+from app.core.telegram_queue import TelegramQueue
 from app.db.session import SessionLocal
 from app.models.platform import Shop
+from app.services.abandoned_cart_service import AbandonedCartService
 
 logger = logging.getLogger(__name__)
 _cfg = get_settings()
@@ -54,7 +59,13 @@ def _build_dispatcher(shop_id: int, cache: CatalogCache) -> Dispatcher:
     dp["shop_id"] = shop_id
     dp["catalog_cache"] = cache
 
+    # i18n middleware: injects `lang` into every handler
+    dp.message.middleware(I18nMiddleware())
+    dp.callback_query.middleware(I18nMiddleware())
+
     dp.include_router(start_router)
+    dp.include_router(language_router)
+    dp.include_router(review_router)
     dp.include_router(faq_router)
     dp.include_router(menu_router)
     dp.include_router(catalog_router)
@@ -71,6 +82,8 @@ class BotInstance:
     bot: Bot = field(init=False)
     dp: Dispatcher = field(init=False)
     cache: CatalogCache = field(init=False)
+    tg_queue: TelegramQueue = field(init=False)
+    abandoned_cart_svc: AbandonedCartService = field(init=False)
     _task: asyncio.Task | None = field(default=None, init=False)
 
     def __post_init__(self):
@@ -80,14 +93,50 @@ class BotInstance:
             default=DefaultBotProperties(parse_mode=ParseMode.HTML),
         )
         self.dp = _build_dispatcher(self.shop_id, self.cache)
+        self.tg_queue = TelegramQueue(self.bot, self.shop_id)
+        self.abandoned_cart_svc = AbandonedCartService(self.shop_id, self.tg_queue)
 
     async def start(self) -> None:
         await self.cache.load()
+        await self.tg_queue.start()
+        self.abandoned_cart_svc.start()
         logger.info("Starting bot for shop_id=%s", self.shop_id)
         self._task = asyncio.create_task(
-            self.dp.start_polling(self.bot, handle_signals=False),
+            self._supervised_polling(),
             name=f"bot_shop_{self.shop_id}",
         )
+
+    async def _supervised_polling(self) -> None:
+        """
+        B5: Supervisor-loop вокруг start_polling.
+        При неожиданном завершении (сбой сети, Telegram API ошибка) —
+        перезапускает polling с экспоненциальным backoff.
+        Остановка через CancelledError (от stop()) завершает loop без перезапуска.
+        """
+        backoff = 5  # секунд, начальный интервал
+        _MAX_BACKOFF = 300
+
+        while True:
+            try:
+                logger.info("Polling started for shop_id=%s", self.shop_id)
+                await self.dp.start_polling(self.bot, handle_signals=False)
+                # start_polling вернулся штатно — выходим
+                logger.info("Polling finished cleanly for shop_id=%s", self.shop_id)
+                return
+            except asyncio.CancelledError:
+                logger.info("Polling cancelled for shop_id=%s", self.shop_id)
+                raise  # propagate — это intentional stop()
+            except Exception as exc:
+                logger.error(
+                    "Bot polling crashed for shop_id=%s: %s. "
+                    "Restarting in %ds...",
+                    self.shop_id, exc, backoff,
+                )
+                try:
+                    await asyncio.sleep(backoff)
+                except asyncio.CancelledError:
+                    raise
+                backoff = min(backoff * 2, _MAX_BACKOFF)
 
     async def stop(self) -> None:
         if self._task and not self._task.done():
@@ -96,6 +145,8 @@ class BotInstance:
                 await self._task
             except asyncio.CancelledError:
                 pass
+        await self.abandoned_cart_svc.stop()
+        await self.tg_queue.stop()
         await self.bot.session.close()
         logger.info("Stopped bot for shop_id=%s", self.shop_id)
 

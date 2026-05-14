@@ -1,0 +1,12 @@
+# PgBouncer userlist — scram-sha-256 hashed passwords
+#
+# Generate hash with:
+#   docker run --rm postgres:16-alpine psql -c "SELECT concat('SCRAM-SHA-256$', encode(gen_salt('sha256'), 'base64'))" 2>/dev/null
+#
+# OR simply use the plaintext form for local/dev (less secure):
+#   "kaza" "CHANGEME"
+#
+# Production: replace with the actual SCRAM hash.
+# The password here must match POSTGRES_PASSWORD in .env.
+#
+"kaza" "CHANGEME_REPLACE_WITH_SCRAM_HASH"

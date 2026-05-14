@@ -10,6 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.schemas.settings import FaqItemResponse, FaqUpdate, SettingsResponse, SettingsUpdate
+from app.core.security import check_image_magic
 from app.models.settings import FaqItem, ShopSettings
 from app.services.settings_service import get_shop_settings, invalidate_settings_cache
 
@@ -17,6 +18,15 @@ MEDIA_DIR = Path("/app/media")
 ALLOWED_IMG = {"image/jpeg", "image/png", "image/webp", "image/svg+xml"}
 ALLOWED_IMG_NO_SVG = {"image/jpeg", "image/png", "image/webp"}
 MAX_UPLOAD = 5 * 1024 * 1024
+
+
+def _mask_secret(value: str | None) -> str | None:
+    """Возвращает маскированный секрет вида '••••••last4' или None."""
+    if not value:
+        return None
+    if len(value) <= 4:
+        return "••••"
+    return "••••" + value[-4:]
 
 
 def _to_response(s: ShopSettings) -> SettingsResponse:
@@ -35,6 +45,24 @@ def _to_response(s: ShopSettings) -> SettingsResponse:
         payment_qr_url=f"/media/{s.payment_qr_filename}" if s.payment_qr_filename else None,
         payment_qr_comment=s.payment_qr_comment,
         legal_name=s.legal_name,
+        # CDEK
+        cdek_enabled=bool(getattr(s, "cdek_enabled", False)),
+        cdek_test_mode=bool(getattr(s, "cdek_test_mode", True)),
+        cdek_client_id=getattr(s, "cdek_client_id", None),
+        cdek_client_secret=_mask_secret(getattr(s, "cdek_client_secret", None)),
+        cdek_sender_city_code=getattr(s, "cdek_sender_city_code", None),
+        cdek_sender_address=getattr(s, "cdek_sender_address", None),
+        cdek_default_weight=getattr(s, "cdek_default_weight", 500) or 500,
+        # YooKassa
+        yookassa_enabled=bool(getattr(s, "yookassa_enabled", False)),
+        yookassa_shop_id=getattr(s, "yookassa_shop_id", None),
+        yookassa_secret_key=_mask_secret(getattr(s, "yookassa_secret_key", None)),
+        yookassa_return_url=getattr(s, "yookassa_return_url", None),
+        # Mini App
+        miniapp_url=getattr(s, "miniapp_url", None),
+        # i18n
+        default_language=getattr(s, "default_language", "ru") or "ru",
+        shop_languages=getattr(s, "shop_languages", "ru") or "ru",
     )
 
 
@@ -48,10 +76,19 @@ async def update_settings(
 ) -> SettingsResponse:
     s = await get_shop_settings(session, shop_id)
     for field, value in data.model_dump(exclude_unset=True).items():
+        # Не перезаписываем секреты маскированными значениями
+        if field in ("cdek_client_secret", "yookassa_secret_key") and value and value.startswith("••••"):
+            continue
         setattr(s, field, value)
     await session.commit()
     invalidate_settings_cache()
     return _to_response(s)
+
+
+def _check_svg_magic(content: bytes) -> bool:
+    """Minimal SVG content check — must start with XML/SVG markers."""
+    head = content.lstrip()[:256].lower()
+    return b"<svg" in head or (b"<?xml" in head and b"svg" in head)
 
 
 async def _upload_file(
@@ -63,12 +100,22 @@ async def _upload_file(
     content = await file.read()
     if len(content) > MAX_UPLOAD:
         raise HTTPException(413, "File too large. Max 5 MB.")
+
+    # Validate actual file content (magic bytes), not just the declared content-type
+    if file.content_type == "image/svg+xml":
+        if not _check_svg_magic(content):
+            raise HTTPException(400, "Invalid SVG file content.")
+        ext = "svg"
+    else:
+        detected_fmt = check_image_magic(content)  # raises HTTPException on mismatch
+        # Map detected format name to canonical file extension
+        ext = "jpg" if detected_fmt == "jpeg" else detected_fmt
+
     old_fn = getattr(s, field, None)
     if old_fn:
         old = MEDIA_DIR / old_fn
         if old.exists():
             old.unlink()
-    ext = file.filename.rsplit(".", 1)[-1].lower() if file.filename and "." in file.filename else "png"
     filename = f"{prefix}_{uuid.uuid4().hex[:8]}.{ext}"
     MEDIA_DIR.mkdir(parents=True, exist_ok=True)
     async with aiofiles.open(MEDIA_DIR / filename, "wb") as f:

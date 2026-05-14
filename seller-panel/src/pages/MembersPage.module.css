@@ -1,0 +1,191 @@
+.page {
+  padding: 24px;
+  max-width: 900px;
+}
+
+.title {
+  font-size: 22px;
+  font-weight: 700;
+  margin: 0 0 20px;
+  color: #1a1a2e;
+}
+
+.card {
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 2px 12px rgba(0,0,0,.07);
+  padding: 24px;
+  margin-bottom: 20px;
+}
+
+.cardTitle {
+  font-size: 16px;
+  font-weight: 600;
+  margin: 0 0 12px;
+  color: #1a1a2e;
+}
+
+.hint {
+  font-size: 13px;
+  color: #888;
+  margin: 0 0 14px;
+}
+
+.inviteForm {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+.input {
+  flex: 1 1 220px;
+  border: 1.5px solid #e0e0e0;
+  border-radius: 8px;
+  padding: 9px 13px;
+  font-size: 14px;
+  outline: none;
+  transition: border-color .2s;
+}
+.input:focus { border-color: #6c63ff; }
+
+.select {
+  border: 1.5px solid #e0e0e0;
+  border-radius: 8px;
+  padding: 9px 13px;
+  font-size: 14px;
+  background: #fff;
+  outline: none;
+  cursor: pointer;
+}
+
+.selectSm {
+  border: 1.5px solid #e0e0e0;
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: 13px;
+  background: #fff;
+}
+
+.btnPrimary {
+  background: #6c63ff;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 9px 20px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background .2s;
+}
+.btnPrimary:hover:not(:disabled) { background: #5a52d5; }
+.btnPrimary:disabled { opacity: .6; cursor: default; }
+
+.btnSmPrimary {
+  background: #6c63ff;
+  color: #fff;
+  border: none;
+  border-radius: 5px;
+  padding: 4px 10px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.btnSm {
+  background: #f5f5f5;
+  color: #555;
+  border: none;
+  border-radius: 5px;
+  padding: 4px 9px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.btnDanger {
+  background: transparent;
+  color: #e53935;
+  border: 1.5px solid #e53935;
+  border-radius: 6px;
+  padding: 4px 12px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background .15s, color .15s;
+}
+.btnDanger:hover { background: #e53935; color: #fff; }
+
+.editRow {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.roleDefs {
+  margin-top: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.roleDef {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.roleChip {
+  font-size: 12px;
+  font-weight: 600;
+  background: #f0eeff;
+  color: #6c63ff;
+  border-radius: 5px;
+  padding: 2px 8px;
+  white-space: nowrap;
+}
+
+.roleDesc {
+  font-size: 12px;
+  color: #888;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+.table th {
+  text-align: left;
+  color: #aaa;
+  font-weight: 500;
+  font-size: 12px;
+  padding: 0 12px 10px 0;
+  border-bottom: 1.5px solid #f0f0f0;
+}
+.table td {
+  padding: 12px 12px 12px 0;
+  border-bottom: 1px solid #f8f8f8;
+  vertical-align: middle;
+}
+
+.roleTag {
+  display: inline-block;
+  background: #f0eeff;
+  color: #6c63ff;
+  border-radius: 5px;
+  padding: 3px 9px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background .15s;
+}
+.roleTag:hover { background: #e0d9ff; }
+.roleTag[data-role="owner"]   { background: #fff3e0; color: #f57c00; }
+.roleTag[data-role="support"] { background: #e8f5e9; color: #388e3c; }
+
+.muted { color: #aaa; font-size: 13px; }
+
+.error {
+  color: #e53935;
+  font-size: 13px;
+  margin-top: 8px;
+}

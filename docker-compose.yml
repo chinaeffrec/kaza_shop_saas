@@ -103,6 +103,21 @@ services:
       app:
         condition: service_healthy
 
+  miniapp:
+    build:
+      context: ./miniapp
+      dockerfile: Dockerfile
+      args:
+        VITE_API_URL: ""   # пустая строка → относительные URL через nginx
+    container_name: kaza_miniapp
+    restart: always
+    logging: *default-logging
+    ports:
+      - "5174:80"
+    depends_on:
+      app:
+        condition: service_healthy
+
 volumes:
   postgres_data:
   redis_data:

@@ -35,3 +35,11 @@
 .statusBtn:hover:not(:disabled){background:#e0e0e0}
 .statusBtn:disabled{opacity:.5;cursor:default}
 .activeSt{background:#6c63ff;color:#fff}
+
+/* ── CDEK tracking ───────────────────────────────────────────────────────── */
+.cdekBlock{background:#f5f5ff;border-radius:8px;padding:10px 14px;margin-top:8px;font-size:13px}
+.cdekTitle{font-weight:600;margin-bottom:4px;color:#6c63ff}
+.trackLink{color:#6c63ff;text-decoration:none;font-weight:500}
+.trackLink:hover{text-decoration:underline}
+.trackPending{color:#888;font-style:italic}
+.cdekStatus{margin-top:4px;color:#555}

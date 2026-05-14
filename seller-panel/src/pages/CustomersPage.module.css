@@ -1,0 +1,138 @@
+.page { padding: 24px; max-width: 1100px; }
+
+.title { font-size: 22px; font-weight: 700; margin: 0 0 20px; color: #1a1a2e; }
+
+.toolbar {
+  display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+  margin-bottom: 20px;
+}
+
+.searchForm { display: flex; gap: 8px; flex: 1 1 400px; }
+
+.searchInput {
+  flex: 1; border: 1.5px solid #e0e0e0; border-radius: 8px;
+  padding: 9px 13px; font-size: 14px; outline: none;
+  transition: border-color .2s;
+}
+.searchInput:focus { border-color: #6c63ff; }
+
+.btnPrimary {
+  background: #6c63ff; color: #fff; border: none; border-radius: 8px;
+  padding: 9px 20px; font-size: 14px; font-weight: 500; cursor: pointer;
+  white-space: nowrap; transition: background .2s;
+}
+.btnPrimary:hover:not(:disabled) { background: #5a52d5; }
+.btnPrimary:disabled { opacity: .6; cursor: default; }
+
+.btnGhost {
+  background: transparent; color: #888; border: 1.5px solid #e0e0e0;
+  border-radius: 8px; padding: 9px 16px; font-size: 14px; cursor: pointer;
+}
+.btnGhost:hover { border-color: #aaa; color: #555; }
+
+.tableWrap { background: #fff; border-radius: 12px; box-shadow: 0 2px 12px rgba(0,0,0,.07); overflow: hidden; }
+
+.table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.table th {
+  text-align: left; color: #aaa; font-weight: 500; font-size: 12px;
+  padding: 12px 16px; border-bottom: 1.5px solid #f0f0f0; background: #fafafa;
+}
+.table td { padding: 12px 16px; border-bottom: 1px solid #f8f8f8; vertical-align: middle; }
+
+.row { cursor: pointer; transition: background .1s; }
+.row:hover { background: #f9f9ff; }
+
+.nameBlock { display: flex; flex-direction: column; gap: 2px; }
+.name { font-weight: 500; }
+.uname { font-size: 12px; color: #888; }
+.phone { font-size: 13px; }
+
+.muted { color: #aaa; font-size: 13px; }
+.error { color: #e53935; font-size: 13px; }
+
+.pagination {
+  display: flex; align-items: center; gap: 12px;
+  margin-top: 16px; justify-content: center;
+}
+.pgBtn {
+  background: #f5f5f5; border: 1.5px solid #e0e0e0; border-radius: 7px;
+  padding: 6px 14px; font-size: 13px; cursor: pointer;
+}
+.pgBtn:disabled { opacity: .4; cursor: default; }
+.pgBtn:not(:disabled):hover { background: #e9e9ff; border-color: #6c63ff; }
+
+/* ── Drawer ── */
+.overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,.35); z-index: 100;
+  display: flex; justify-content: flex-end;
+}
+
+.drawer {
+  width: 420px; max-width: 100vw; background: #fff; height: 100%;
+  overflow-y: auto; box-shadow: -4px 0 24px rgba(0,0,0,.15);
+  display: flex; flex-direction: column; position: relative;
+}
+
+.closeBtn {
+  position: absolute; top: 14px; right: 16px;
+  background: none; border: none; font-size: 18px; cursor: pointer; color: #aaa;
+}
+.closeBtn:hover { color: #555; }
+
+.drawerHeader {
+  padding: 28px 24px 16px;
+  border-bottom: 1.5px solid #f0f0f0;
+}
+.drawerName { font-size: 18px; font-weight: 700; color: #1a1a2e; }
+.drawerUname { font-size: 13px; color: #6c63ff; margin-top: 2px; }
+.drawerStats {
+  display: flex; gap: 8px; margin-top: 10px;
+  font-size: 13px; font-weight: 500; color: #555;
+}
+
+.tabs {
+  display: flex; border-bottom: 1.5px solid #f0f0f0;
+  padding: 0 24px;
+}
+.tab {
+  background: none; border: none; padding: 10px 16px 10px;
+  font-size: 14px; cursor: pointer; color: #888;
+  border-bottom: 2px solid transparent; margin-bottom: -2px;
+  transition: color .2s, border-color .2s;
+}
+.tab:hover { color: #555; }
+.tabActive { color: #6c63ff !important; border-bottom-color: #6c63ff !important; }
+
+.drawerBody { padding: 20px 24px; display: flex; flex-direction: column; gap: 12px; }
+
+.infoRow {
+  display: flex; justify-content: space-between;
+  font-size: 13px; padding: 6px 0; border-bottom: 1px solid #f8f8f8;
+}
+.infoLabel { color: #aaa; }
+
+.fieldLabel { font-size: 12px; color: #888; font-weight: 500; margin-bottom: -6px; }
+.fieldInput {
+  border: 1.5px solid #e0e0e0; border-radius: 8px;
+  padding: 9px 12px; font-size: 14px; outline: none;
+}
+.fieldInput:focus { border-color: #6c63ff; }
+.fieldTextarea {
+  border: 1.5px solid #e0e0e0; border-radius: 8px;
+  padding: 9px 12px; font-size: 14px; outline: none; resize: vertical;
+  font-family: inherit;
+}
+.fieldTextarea:focus { border-color: #6c63ff; }
+
+.orderCard {
+  border: 1.5px solid #f0f0f0; border-radius: 8px;
+  padding: 10px 14px;
+}
+.orderTop { display: flex; gap: 10px; align-items: center; font-size: 13px; }
+.orderId { font-weight: 600; color: #1a1a2e; }
+.orderStatus {
+  background: #f0eeff; color: #6c63ff; border-radius: 4px;
+  padding: 1px 7px; font-size: 11px; font-weight: 500;
+}
+.orderTotal { margin-left: auto; font-weight: 600; }
+.orderDate { font-size: 11px; color: #aaa; margin-top: 4px; }

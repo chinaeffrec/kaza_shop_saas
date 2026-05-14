@@ -1,0 +1,175 @@
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, .55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 16px;
+  animation: fadeIn .2s ease;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.modal {
+  background: var(--bg-card);
+  border-radius: 18px;
+  box-shadow: var(--shadow-lg);
+  width: 100%;
+  max-width: 460px;
+  overflow: hidden;
+  animation: slideUp .22s ease;
+}
+
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(20px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ── Progress bar ──────────────────────────────────────────────────────────── */
+.progressTrack {
+  height: 4px;
+  background: var(--border);
+}
+.progressFill {
+  height: 100%;
+  background: var(--accent);
+  transition: width .3s ease;
+  border-radius: 0 2px 2px 0;
+}
+
+/* ── Step dots ─────────────────────────────────────────────────────────────── */
+.dots {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  padding: 18px 0 0;
+}
+.dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--border);
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  transition: background var(--transition), transform var(--transition);
+}
+.dot:hover { background: var(--text-muted); }
+.dotActive {
+  background: var(--accent);
+  transform: scale(1.2);
+}
+.dotDone {
+  background: var(--success);
+}
+
+/* ── Content ───────────────────────────────────────────────────────────────── */
+.content {
+  padding: 24px 32px 16px;
+  text-align: center;
+}
+.icon {
+  font-size: 52px;
+  margin-bottom: 16px;
+  line-height: 1;
+}
+.title {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: 10px;
+}
+.desc {
+  font-size: 14px;
+  color: var(--text-secondary);
+  line-height: 1.6;
+  margin-bottom: 14px;
+}
+.tip {
+  display: inline-block;
+  background: var(--bg-page);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 8px 14px;
+  font-size: 13px;
+  color: var(--text-muted);
+  line-height: 1.4;
+  text-align: left;
+  width: 100%;
+}
+
+/* ── Actions ───────────────────────────────────────────────────────────────── */
+.actions {
+  display: flex;
+  gap: 10px;
+  padding: 16px 32px 12px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.primary {
+  flex: 1;
+  background: var(--accent);
+  color: var(--accent-text);
+  border: none;
+  border-radius: var(--radius);
+  padding: 11px 20px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background var(--transition);
+  min-width: 140px;
+}
+.primary:hover { background: var(--accent-hover); }
+
+.next {
+  background: var(--bg-page);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 11px 20px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background var(--transition);
+}
+.next:hover { background: var(--bg-card-hover); }
+
+.back {
+  background: transparent;
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 11px 16px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: color var(--transition);
+}
+.back:hover { color: var(--text-primary); }
+
+.skip {
+  display: block;
+  width: 100%;
+  background: transparent;
+  border: none;
+  padding: 10px;
+  font-size: 12px;
+  color: var(--text-muted);
+  cursor: pointer;
+  text-align: center;
+  transition: color var(--transition);
+}
+.skip:hover { color: var(--text-secondary); }
+
+/* ── Responsive ────────────────────────────────────────────────────────────── */
+@media (max-width: 500px) {
+  .content { padding: 20px 20px 12px; }
+  .actions { padding: 12px 20px 10px; }
+  .title { font-size: 18px; }
+  .icon { font-size: 44px; }
+}

@@ -2,6 +2,7 @@
 Экспорт и импорт базы данных (JSON) и медиафайлов (ZIP).
 Используется для переноса на другой сервер и резервного копирования через UI.
 """
+import asyncio
 import io
 import json
 import logging
@@ -161,30 +162,36 @@ async def import_db(content: bytes, session: AsyncSession) -> dict:
 # ── Медиафайлы ────────────────────────────────────────────────────────────────
 
 async def export_media() -> bytes:
-    """Упаковывает /app/media/ в ZIP и возвращает байты."""
-    buf = io.BytesIO()
-    MEDIA_DIR.mkdir(parents=True, exist_ok=True)
-    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-        for path in MEDIA_DIR.iterdir():
-            if path.is_file():
-                zf.write(path, arcname=path.name)
-    buf.seek(0)
-    return buf.getvalue()
+    """Упаковывает /app/media/ в ZIP и возвращает байты. B4: ZIP в отдельном потоке."""
+    def _zip() -> bytes:
+        buf = io.BytesIO()
+        MEDIA_DIR.mkdir(parents=True, exist_ok=True)
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+            for path in MEDIA_DIR.iterdir():
+                if path.is_file():
+                    zf.write(path, arcname=path.name)
+        buf.seek(0)
+        return buf.getvalue()
+
+    return await asyncio.to_thread(_zip)
 
 
 async def import_media(content: bytes) -> dict:
     """
     Распаковывает ZIP с медиафайлами в /app/media/.
     Существующие файлы перезаписываются, лишние не удаляются.
+    B4: разархивация выполняется в отдельном потоке.
     """
-    try:
-        max_archive_bytes = cfg.media_import_max_archive_mb * 1024 * 1024
-        if len(content) > max_archive_bytes:
-            raise HTTPException(413, f"Архив слишком большой. Лимит: {cfg.media_import_max_archive_mb} MB")
+    # Быстрые проверки до запуска потока
+    max_archive_bytes = cfg.media_import_max_archive_mb * 1024 * 1024
+    if len(content) > max_archive_bytes:
+        raise HTTPException(413, f"Архив слишком большой. Лимит: {cfg.media_import_max_archive_mb} MB")
 
-        buf = io.BytesIO(content)
-        if not zipfile.is_zipfile(buf):
-            raise HTTPException(400, "Файл не является ZIP-архивом")
+    buf = io.BytesIO(content)
+    if not zipfile.is_zipfile(buf):
+        raise HTTPException(400, "Файл не является ZIP-архивом")
+
+    def _extract() -> int:
         buf.seek(0)
         MEDIA_DIR.mkdir(parents=True, exist_ok=True)
         with zipfile.ZipFile(buf, "r") as zf:
@@ -192,23 +199,27 @@ async def import_media(content: bytes) -> dict:
             # Защита от path traversal: принимаем только плоские имена файлов
             safe_names = [n for n in names if "/" not in n and "\\" not in n and n]
             if len(safe_names) > cfg.media_import_max_files:
-                raise HTTPException(413, f"Слишком много файлов. Лимит: {cfg.media_import_max_files}")
+                raise ValueError(f"Слишком много файлов. Лимит: {cfg.media_import_max_files}")
             total_uncompressed = sum(
                 info.file_size for info in zf.infolist()
                 if info.filename in safe_names
             )
             max_uncompressed = cfg.media_import_max_uncompressed_mb * 1024 * 1024
             if total_uncompressed > max_uncompressed:
-                raise HTTPException(
-                    413,
-                    f"Суммарный размер распаковки превышает лимит {cfg.media_import_max_uncompressed_mb} MB",
+                raise ValueError(
+                    f"Суммарный размер распаковки превышает лимит "
+                    f"{cfg.media_import_max_uncompressed_mb} MB"
                 )
             for name in safe_names:
                 zf.extract(name, MEDIA_DIR)
-        logger.info("Media import: extracted %d files", len(safe_names))
-        return {"ok": True, "files": len(safe_names)}
-    except HTTPException:
-        raise
+            return len(safe_names)
+
+    try:
+        extracted = await asyncio.to_thread(_extract)
+        logger.info("Media import: extracted %d files", extracted)
+        return {"ok": True, "files": extracted}
+    except ValueError as e:
+        raise HTTPException(413, str(e))
     except Exception as e:
         logger.exception("Media import failed: %s", e)
         raise HTTPException(500, f"Ошибка импорта медиафайлов: {e}")

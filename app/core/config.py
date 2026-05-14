@@ -28,7 +28,8 @@ class Settings(BaseSettings):
     db_name: str = "kaza_shop"
 
     # Security
-    secret_key: str = ""
+    secret_key: str = ""          # Legacy: used by old /auth/* routes only
+    platform_jwt_secret: str = "" # Platform JWT signing key (required in production)
     admin_password: str = ""
 
     # Platform super-admin seed (используется только при первом запуске)
@@ -56,6 +57,23 @@ class Settings(BaseSettings):
 
     # Бэкапы
     backup_keep_days: int = 14
+
+    # ── High Availability ──────────────────────────────────────────────────────
+    # PgBouncer: если задан — engine использует его вместо прямого подключения
+    db_pgbouncer_url: str = ""
+
+    # PostgreSQL replica для health-check replica lag (формат: host[:port])
+    db_replica_host: str = ""
+    db_replica_port: int = 5432
+
+    # Redis Sentinel: "host1:26379,host2:26379,host3:26379"
+    redis_sentinel_hosts: str = ""
+    redis_sentinel_master: str = "mymaster"
+    redis_sentinel_password: str = ""
+
+    # Observability
+    log_format: str = "text"          # "text" | "json"
+    prometheus_enabled: bool = True   # включает /metrics endpoint
 
     # Лимиты импорта медиа
     media_import_max_archive_mb: int = 100

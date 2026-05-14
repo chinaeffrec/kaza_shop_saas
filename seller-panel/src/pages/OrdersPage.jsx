@@ -64,6 +64,34 @@ export default function OrdersPage() {
     }
   }
 
+  async function createPaymentLink(orderId) {
+    try {
+      const res = await api.createPayment(orderId)
+      if (res.confirmation_url) {
+        window.open(res.confirmation_url, '_blank')
+        toast('💳 Ссылка на оплату создана', 'success')
+      }
+      await load(ordersPage)
+    } catch(e) { toast('Ошибка: ' + e.message, 'error') }
+  }
+
+  async function doRefund(orderId) {
+    if (!confirm('Инициировать возврат по заказу #' + orderId + '? Это действие необратимо.')) return
+    try {
+      const res = await api.createRefund(orderId)
+      toast(`↩️ Возврат создан: ${res.refund_id}`, 'success')
+      await load(ordersPage)
+    } catch(e) { toast('Ошибка возврата: ' + e.message, 'error') }
+  }
+
+  const _PAY_STATUS_LABELS = {
+    pending: '⏳ Ожидает оплаты',
+    waiting_for_capture: '🔄 Подтверждение',
+    succeeded: '✅ Оплачен',
+    canceled: '❌ Отменён',
+    refunded: '↩️ Возврат',
+  }
+
   return (
     <div>
       <div className={s.toolbar}>
@@ -117,8 +145,62 @@ export default function OrdersPage() {
                   <div className={s.infoGrid}>
                     <div><span className={s.infoLabel}>Покупатель:</span> {o.user_name || `ID ${o.user_id}`}</div>
                     {o.user_contact && <div><span className={s.infoLabel}>Контакт:</span> {o.user_contact}</div>}
-                    {o.delivery_address && <div><span className={s.infoLabel}>Адрес:</span> {o.delivery_address}</div>}
+                    {o.pvz_address
+                      ? <div><span className={s.infoLabel}>📦 СДЭК ПВЗ:</span> {o.pvz_address}</div>
+                      : o.delivery_address && <div><span className={s.infoLabel}>Адрес:</span> {o.delivery_address}</div>
+                    }
+                    {o.delivery_cost > 0 && <div><span className={s.infoLabel}>Доставка:</span> {o.delivery_cost} ₽</div>}
+                    {o.discount > 0 && <div><span className={s.infoLabel}>Скидка:</span> −{o.discount} ₽ {o.promo_code && `(${o.promo_code})`}</div>}
                     {o.comment && <div><span className={s.infoLabel}>Комментарий:</span> {o.comment}</div>}
+                    {/* CDEK tracking block */}
+                    {o.cdek_order_uuid && (
+                      <div className={s.cdekBlock}>
+                        <div className={s.cdekTitle}>📦 СДЭК</div>
+                        {o.cdek_track_number
+                          ? <a className={s.trackLink}
+                              href={`https://www.cdek.ru/ru/tracking?order_id=${o.cdek_track_number}`}
+                              target="_blank" rel="noreferrer">
+                              🔗 Отследить: {o.cdek_track_number}
+                            </a>
+                          : <span className={s.trackPending}>Трек-номер ещё не присвоен</span>
+                        }
+                        {o.cdek_status && <div className={s.cdekStatus}>{o.cdek_status}</div>}
+                      </div>
+                    )}
+                    {/* YooKassa payment block */}
+                    {o.payment_id && (
+                      <div className={s.cdekBlock}>
+                        <div className={s.cdekTitle}>💳 ЮКасса</div>
+                        <div>
+                          <span className={s.infoLabel}>Статус оплаты: </span>
+                          <span className={s.cdekStatus}>
+                            {_PAY_STATUS_LABELS[o.payment_status] || o.payment_status || '—'}
+                          </span>
+                        </div>
+                        {o.payment_status === 'succeeded' && !o.refund_id && (
+                          <button onClick={() => doRefund(o.id)}
+                            style={{marginTop:6, background:'#e53935', color:'#fff',
+                              padding:'5px 14px', borderRadius:7, fontSize:12,
+                              border:'none', cursor:'pointer'}}>
+                            ↩️ Инициировать возврат
+                          </button>
+                        )}
+                        {o.refund_id && (
+                          <div style={{fontSize:12, color:'#888', marginTop:4}}>
+                            Возврат: {o.refund_id}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    {!o.payment_id && (
+                      <div style={{marginTop: 8}}>
+                        <button onClick={() => createPaymentLink(o.id)}
+                          style={{background:'#1976d2', color:'#fff', padding:'6px 14px',
+                            borderRadius:7, fontSize:12, border:'none', cursor:'pointer'}}>
+                          💳 Создать ссылку оплаты
+                        </button>
+                      </div>
+                    )}
                     <div style={{marginTop: 14}}>
                       <button
                           onClick={() => generateReceipt(o.id)}

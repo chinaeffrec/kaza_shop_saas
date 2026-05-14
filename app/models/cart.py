@@ -14,8 +14,8 @@ class Cart(Base):
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    shop_id: Mapped[int | None] = mapped_column(
-        ForeignKey("shops.id", ondelete="CASCADE"), nullable=True
+    shop_id: Mapped[int] = mapped_column(
+        ForeignKey("shops.id", ondelete="CASCADE"), nullable=False
     )
     user_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
     product_id: Mapped[int] = mapped_column(ForeignKey("products.id", ondelete="CASCADE"))

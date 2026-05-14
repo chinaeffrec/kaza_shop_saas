@@ -19,8 +19,8 @@ class SubCategory(Base):
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    shop_id: Mapped[int | None] = mapped_column(
-        ForeignKey("shops.id", ondelete="CASCADE"), nullable=True
+    shop_id: Mapped[int] = mapped_column(
+        ForeignKey("shops.id", ondelete="CASCADE"), nullable=False
     )
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     category_id: Mapped[int] = mapped_column(

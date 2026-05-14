@@ -12,9 +12,10 @@ from fastapi.responses import RedirectResponse
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.routes.auth import require_auth
+from app.api.deps import get_owner_shop_id
 from app.core.config import get_settings
 from app.db.session import get_session
+from app.core.circuit_breaker import cdek_cb, yookassa_cb
 
 router = APIRouter(tags=["system"])
 _start_time = time.monotonic()
@@ -57,7 +58,7 @@ async def health():
 @router.get("/health/detail")
 async def health_detail(
     session: AsyncSession = Depends(get_session),
-    _: str = Depends(require_auth),
+    _: int = Depends(get_owner_shop_id),
 ):
     """Детальный статус - только для администратора."""
     uptime_sec = int(time.monotonic() - _start_time)
@@ -105,12 +106,45 @@ async def health_detail(
     except Exception:
         checks["memory"] = {"status": "unknown"}
 
+    # Replica lag (если задан DB_REPLICA_HOST)
+    replica_host = _cfg.db_replica_host
+    if replica_host:
+        try:
+            from sqlalchemy.ext.asyncio import create_async_engine
+            replica_url = (
+                f"postgresql+asyncpg://{_cfg.db_user}:{_cfg.db_password}"
+                f"@{replica_host}:{_cfg.db_replica_port}/{_cfg.db_name}"
+            )
+            rep_engine = create_async_engine(replica_url, pool_size=1, max_overflow=0, pool_pre_ping=False)
+            async with rep_engine.connect() as conn:
+                lag = await conn.scalar(
+                    text(
+                        "SELECT COALESCE(EXTRACT(EPOCH FROM (NOW() - pg_last_xact_replay_timestamp())), 0)"
+                    )
+                )
+            await rep_engine.dispose()
+            lag_sec = float(lag or 0)
+            checks["replica"] = {
+                "status": "warn" if lag_sec > 30 else "ok",
+                "lag_sec": round(lag_sec, 1),
+            }
+        except Exception as e:
+            checks["replica"] = {"status": "error", "error": str(e)}
+    else:
+        checks["replica"] = {"status": "not_configured"}
+
+    # External service circuit breakers
+    checks["circuit_breakers"] = {
+        "cdek":      cdek_cb.status(),
+        "yookassa":  yookassa_cb.status(),
+    }
+
     overall = "ok"
     for c in checks.values():
-        if c.get("status") == "error":
+        if isinstance(c, dict) and c.get("status") == "error":
             overall = "error"
             break
-        if c.get("status") == "warn" and overall != "error":
+        if isinstance(c, dict) and c.get("status") == "warn" and overall != "error":
             overall = "warn"
 
     return {

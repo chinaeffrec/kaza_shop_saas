@@ -1,0 +1,100 @@
+# ==============================================================================
+#  Kaza Shop — DATA-ONLY compose (топология «два сервера»)
+#
+#  Запускается на DATA-сервере (Россия, соответствие 152-ФЗ).
+#  PostgreSQL и Redis слушают на всех интерфейсах — доступ ограничивается
+#  firewall'ом (ufw) только с IP APP-сервера.
+#
+#  Требуемые переменные в .env:
+#    DB_USER, DB_PASSWORD, DB_NAME
+#    REDIS_PASSWORD          — пароль для Redis (обязателен при сетевом доступе)
+#    APP_SERVER_IP           — IP APP-сервера (для firewall-правил)
+#
+#  Использование:
+#    docker compose -f docker-compose.data-only.yml up -d
+# ==============================================================================
+x-logging: &default-logging
+  driver: "json-file"
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  db:
+    image: postgres:15-alpine
+    restart: always
+    logging: *default-logging
+    environment:
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
+    command: >
+      postgres
+      -c max_connections=100
+      -c shared_buffers=256MB
+      -c effective_cache_size=512MB
+      -c work_mem=8MB
+      -c checkpoint_completion_target=0.9
+      -c wal_buffers=16MB
+      -c statement_timeout=30000
+      -c lock_timeout=10000
+      -c idle_in_transaction_session_timeout=30000
+      -c listen_addresses=*
+    ports:
+      # Привязываем к 0.0.0.0 — firewall ограничивает доступ по IP
+      - "0.0.0.0:5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./deploy/postgres/pg_hba_remote.conf:/etc/postgresql/pg_hba.conf:ro
+    networks:
+      - data_internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+
+  redis:
+    image: redis:7-alpine
+    restart: always
+    logging: *default-logging
+    # requirepass — обязательно для сетевого Redis
+    command: >
+      redis-server
+      --requirepass ${REDIS_PASSWORD}
+      --save 60 1
+      --loglevel warning
+      --bind 0.0.0.0
+      --protected-mode no
+    ports:
+      - "0.0.0.0:6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - data_internal
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+
+networks:
+  data_internal:
+    # Внутренняя сеть между db и redis (для будущих агентов резервного копирования)
+    internal: false
+    driver: bridge
+
+volumes:
+  postgres_data:
+  redis_data:

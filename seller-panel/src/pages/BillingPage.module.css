@@ -1,0 +1,205 @@
+.page {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 24px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.center {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 200px;
+  font-size: 15px;
+  color: #666;
+}
+
+/* ── Cards ─────────────────────────────────────────────────────────────────── */
+.card {
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  padding: 24px;
+}
+
+.cardHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+
+.cardTitle {
+  margin: 0 0 4px;
+  font-size: 17px;
+  font-weight: 600;
+  color: #111;
+}
+
+.cardMeta {
+  font-size: 13px;
+  color: #777;
+  margin: 0 0 20px;
+}
+
+/* ── Status badges ─────────────────────────────────────────────────────────── */
+.statusBadge {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: .3px;
+}
+.statusActive    { background: #d1fae5; color: #065f46; }
+.statusTrial     { background: #dbeafe; color: #1e40af; }
+.statusSuspended { background: #fef3c7; color: #92400e; }
+.statusCancelled { background: #fee2e2; color: #991b1b; }
+
+/* ── Usage bars ────────────────────────────────────────────────────────────── */
+.usageBlock {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.usageRow { display: flex; flex-direction: column; gap: 6px; }
+
+.usageHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.usageLabel { font-size: 13px; color: #374151; font-weight: 500; }
+.usageValue { font-size: 13px; color: #6b7280; }
+
+.barTrack {
+  height: 8px;
+  border-radius: 4px;
+  background: #e5e7eb;
+  overflow: hidden;
+}
+.barFill {
+  height: 100%;
+  border-radius: 4px;
+  background: #3b82f6;
+  transition: width .4s ease;
+}
+.barWarn  { background: #f59e0b; }
+.barDanger{ background: #ef4444; }
+
+.usageWarn {
+  font-size: 12px;
+  color: #b45309;
+  margin: 2px 0 0;
+}
+
+/* ── Plans grid ────────────────────────────────────────────────────────────── */
+.plansGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+  margin-top: 16px;
+}
+
+.planCard {
+  position: relative;
+  border: 2px solid #e5e7eb;
+  border-radius: 12px;
+  padding: 24px 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  transition: border-color .2s, box-shadow .2s;
+}
+.planCard:hover { border-color: #3b82f6; box-shadow: 0 4px 16px rgba(59,130,246,.12); }
+
+.planCurrent {
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59,130,246,.15);
+}
+
+.planCurrentBadge {
+  position: absolute;
+  top: -12px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #3b82f6;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 10px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.planEmoji { font-size: 32px; }
+.planName  { margin: 0; font-size: 18px; font-weight: 700; color: #111; }
+.planPrice { font-size: 14px; color: #374151; font-weight: 600; }
+
+/* ── Plan features list ─────────────────────────────────────────────────────── */
+.planFeatures {
+  list-style: none;
+  padding: 0;
+  margin: 8px 0 0;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.planFeatures li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 13px;
+  padding: 4px 0;
+  border-bottom: 1px solid #f3f4f6;
+}
+.planFeatures li:last-child { border-bottom: none; }
+.featLabel { color: #6b7280; }
+.featValue { font-weight: 600; color: #111; }
+.featYes   { color: #059669; font-weight: 700; }
+.featNo    { color: #d1d5db; }
+
+/* ── Buttons ─────────────────────────────────────────────────────────────────── */
+.upgradeBtn {
+  display: block;
+  margin-top: 12px;
+  padding: 9px 20px;
+  background: #3b82f6;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  border-radius: 8px;
+  text-decoration: none;
+  text-align: center;
+  width: 100%;
+  box-sizing: border-box;
+  transition: background .15s;
+}
+.upgradeBtn:hover { background: #2563eb; }
+
+.currentPill {
+  margin-top: 12px;
+  padding: 8px 20px;
+  border: 2px solid #3b82f6;
+  color: #3b82f6;
+  font-size: 13px;
+  font-weight: 600;
+  border-radius: 8px;
+  text-align: center;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.contactNote {
+  font-size: 12px;
+  color: #9ca3af;
+  margin: 16px 0 0;
+  text-align: center;
+}

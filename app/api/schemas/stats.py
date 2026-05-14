@@ -17,6 +17,7 @@ class TopProduct(BaseModel):
     product_id: int
     name: str
     ordered: int
+    revenue: int = 0          # выручка за период (не все время)
 
 
 class RecentOrder(BaseModel):
@@ -34,11 +35,40 @@ class DashboardResponse(BaseModel):
     total_orders: int
     billable_orders: int
     average_order_value: int
+    conversion_rate: float = 0.0        # billable / total * 100
     by_status: Dict[str, StatusStat]
     orders_by_status: List[StatusStatItem]
     recent_orders: List[RecentOrder]
     top_products: List[TopProduct]
 
+
+# ── Analytics ─────────────────────────────────────────────────────────────────
+
+class RevenuePoint(BaseModel):
+    """Одна точка на графике выручки."""
+    date: str              # "2026-05-01" (day) или "2026-W18" (week)
+    revenue: int
+    orders_count: int
+    new_customers: int = 0  # новых покупателей в этот период
+
+
+class CohortStats(BaseModel):
+    """Разбивка покупателей: новые vs. повторные."""
+    period_buyers: int          # уникальных покупателей в периоде
+    new_buyers: int             # первый заказ в периоде
+    returning_buyers: int       # уже покупали до периода
+    repeat_rate: float          # returning / period_buyers * 100
+    avg_orders_new: float       # среднее заказов у новых
+    avg_orders_returning: float # среднее заказов у повторных
+
+
+class AnalyticsResponse(BaseModel):
+    revenue_chart: List[RevenuePoint]
+    cohorts: CohortStats
+    period: str   # "day" | "week"
+
+
+# ── Product stats ─────────────────────────────────────────────────────────────
 
 class ProductStatItem(BaseModel):
     product_id: int
@@ -62,6 +92,8 @@ class ProductStatsResponse(BaseModel):
     items: List[ProductStatItem]
     summary: ProductStatsSummary
 
+
+# ── Import ────────────────────────────────────────────────────────────────────
 
 class ImportResponse(BaseModel):
     status: str

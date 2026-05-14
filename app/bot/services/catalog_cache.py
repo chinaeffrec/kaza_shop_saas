@@ -5,9 +5,7 @@ from typing import Dict, List, Optional
 
 import httpx
 
-from app.bot.services.api_auth import bot_headers
-
-BASE_URL = "http://app:8000"
+from app.bot.services.api_auth import API_URL, APP_URL, bot_headers
 logger = logging.getLogger(__name__)
 
 
@@ -51,7 +49,7 @@ class CatalogCache:
         for attempt in range(15):
             try:
                 async with httpx.AsyncClient(timeout=3) as client:
-                    r = await client.get(f"{BASE_URL}/health")
+                    r = await client.get(f"{APP_URL}/health")
                     if r.status_code == 200:
                         logger.info("App is ready (shop_id=%s)", self.shop_id)
                         return
@@ -67,7 +65,7 @@ class CatalogCache:
         hdrs = bot_headers(shop_id=self.shop_id)
         try:
             async with httpx.AsyncClient(timeout=10) as client:
-                cat_res = await client.get(f"{BASE_URL}/catalog/categories", headers=hdrs)
+                cat_res = await client.get(f"{API_URL}/catalog/categories", headers=hdrs)
                 categories_data = cat_res.json()
 
                 if not isinstance(categories_data, list):
@@ -79,7 +77,7 @@ class CatalogCache:
                         continue
 
                     sub_res = await client.get(
-                        f"{BASE_URL}/catalog/categories/{c['id']}/subcategories",
+                        f"{API_URL}/catalog/categories/{c['id']}/subcategories",
                         headers=hdrs,
                     )
                     subs_data = sub_res.json()
@@ -92,7 +90,7 @@ class CatalogCache:
                             continue
 
                         prod_res = await client.get(
-                            f"{BASE_URL}/catalog/subcategories/{s['id']}/products",
+                            f"{API_URL}/catalog/subcategories/{s['id']}/products",
                             headers=hdrs,
                         )
                         products_data = prod_res.json()

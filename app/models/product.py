@@ -10,6 +10,7 @@ from app.db.base import Base
 
 if TYPE_CHECKING:
     from app.models.subcategory import SubCategory
+    from app.models.product_variant import ProductVariant
 
 
 class Product(Base):
@@ -22,8 +23,8 @@ class Product(Base):
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    shop_id: Mapped[int | None] = mapped_column(
-        ForeignKey("shops.id", ondelete="CASCADE"), nullable=True
+    shop_id: Mapped[int] = mapped_column(
+        ForeignKey("shops.id", ondelete="CASCADE"), nullable=False
     )
     subcategory_id: Mapped[int] = mapped_column(
         ForeignKey("subcategories.id", ondelete="CASCADE")
@@ -48,6 +49,10 @@ class Product(Base):
     )
 
     subcategory: Mapped["SubCategory"] = relationship("SubCategory", back_populates="products")
+    variants: Mapped[list["ProductVariant"]] = relationship(
+        "ProductVariant", back_populates="product", cascade="all, delete-orphan",
+        order_by="ProductVariant.id",
+    )
 
     def __repr__(self) -> str:
         return f"<Product {self.name} | {self.price}₽>"

@@ -32,3 +32,16 @@
 .logsBox{background:#1e1e2e;border-radius:8px;padding:14px 16px;max-height:240px;overflow-y:auto;margin-top:12px}
 .logLine{font-family:monospace;font-size:13px;color:#a6e3a1;padding:3px 0;border-bottom:1px solid #313244}
 .logLine:last-child{border-bottom:none}
+
+/* ── CDEK ─────────────────────────────────────────────────────────────────── */
+.checkLabel{display:flex;align-items:center;gap:8px;font-size:14px;cursor:pointer;margin-bottom:2px}
+.row2{display:flex;gap:12px;margin-bottom:4px}
+.row2 .label{flex:1}
+.btnSmall{padding:8px 14px;background:#6c63ff;color:#fff;border:none;border-radius:8px;font-size:13px;cursor:pointer;white-space:nowrap}
+.btnSmall:disabled{opacity:.6}
+.cityList{background:#fff;border:1px solid #e0e0e0;border-radius:8px;max-height:180px;overflow-y:auto;margin-bottom:8px}
+.cityItem{padding:9px 12px;font-size:13px;cursor:pointer;border-bottom:1px solid #f0f0f0}
+.cityItem:last-child{border-bottom:none}
+.cityItem:hover{background:#f5f5ff}
+.cityItem code{color:#6c63ff}
+.infoChip{display:inline-block;background:#f0f0ff;color:#6c63ff;border-radius:6px;padding:4px 10px;font-size:13px;margin-bottom:8px}

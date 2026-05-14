@@ -17,7 +17,7 @@ from app.api.schemas.order import (
 )
 from app.core.config import get_settings
 from app.models.cart import Cart
-from app.models.order import ORDER_STATUSES, Order, OrderItem
+from app.models.order import ORDER_STATUSES, STATUS_TRANSITIONS, Order, OrderItem
 from app.models.product import Product
 from app.models.product_stats import ProductStats
 from app.models.user import User
@@ -49,10 +49,20 @@ def _order_to_response(
         user_contact = f"@{user.username}" if user.username else None
     return OrderResponse(
         id=o.id, user_id=o.user_id, total=o.total,
+        discount=getattr(o, "discount", 0),
+        promo_code=getattr(o, "promo_code", None),
         status=o.status, status_label=ORDER_STATUSES.get(o.status, o.status),
-        comment=o.comment, delivery_address=getattr(o, "delivery_address", None),
+        comment=o.comment, staff_notes=getattr(o, "staff_notes", None),
+        delivery_address=getattr(o, "delivery_address", None),
         created_at=o.created_at, updated_at=o.updated_at,
         user_name=user_name, user_contact=user_contact, items=items,
+        allowed_transitions=sorted(STATUS_TRANSITIONS.get(o.status, set())),
+        cdek_order_uuid=getattr(o, "cdek_order_uuid", None),
+        cdek_track_number=getattr(o, "cdek_track_number", None),
+        cdek_status=getattr(o, "cdek_status", None),
+        pvz_code=getattr(o, "pvz_code", None),
+        pvz_address=getattr(o, "pvz_address", None),
+        delivery_cost=getattr(o, "delivery_cost", 0),
     )
 
 
@@ -149,10 +159,14 @@ async def list_orders(
     shop_id: int = 1,
     date_from: str | None = None,
     date_to: str | None = None,
+    user_id: int | None = None,
 ) -> OrderListResponse:
     base_q = select(Order).where(Order.shop_id == shop_id)
     count_q = select(func.count()).select_from(Order).where(Order.shop_id == shop_id)
 
+    if user_id is not None:
+        base_q = base_q.where(Order.user_id == user_id)
+        count_q = count_q.where(Order.user_id == user_id)
     if status:
         base_q = base_q.where(Order.status == status)
         count_q = count_q.where(Order.status == status)
@@ -281,10 +295,31 @@ async def create_order(
     if not rows:
         raise HTTPException(400, "Cart is empty")
 
-    total = sum(p.price * c.quantity for c, p in rows)
+    subtotal = sum(p.price * c.quantity for c, p in rows)
+
+    # Применяем промокод (если передан)
+    discount = 0
+    applied_promo_code: str | None = None
+    if getattr(data, "promo_code", None):
+        try:
+            from app.services.promo_service import apply_promo
+            discount, applied_promo_code = await apply_promo(
+                data.promo_code, subtotal, session, shop_id
+            )
+        except Exception as exc:
+            logger.warning("Promo code '%s' rejected: %s", data.promo_code, exc)
+
+    total = max(0, subtotal - discount)
+
     order = Order(
-        user_id=user_id, shop_id=shop_id, total=total, status="new",
-        comment=data.comment, delivery_address=data.delivery_address,
+        user_id=user_id, shop_id=shop_id,
+        total=total, discount=discount, promo_code=applied_promo_code,
+        status="new",
+        comment=data.comment,
+        delivery_address=getattr(data, "pvz_address", None) or data.delivery_address,
+        pvz_code=getattr(data, "pvz_code", None),
+        pvz_address=getattr(data, "pvz_address", None),
+        delivery_cost=getattr(data, "delivery_cost", 0) or 0,
     )
     session.add(order)
     await session.flush()
@@ -326,11 +361,16 @@ async def create_order(
     admin_contact = shop.admin_contact or _cfg.admin_tg_id
     bot_token = await _get_bot_token_for_shop(shop_id, session)
 
+    promo_line = ""
+    if discount and applied_promo_code:
+        promo_line = f"🏷 Промокод: {applied_promo_code}, скидка {_fmt_price(discount)}\n"
+
     admin_text = (
         f"🆕 <b>Новый заказ #{order.id}</b>\n\n"
         f"👤 {user_name}\n📞 {user_contact}\n\n"
         f"🛒 Товары:\n" + "\n".join(items_text) + "\n\n"
-        f"💰 <b>Итого: {_fmt_price(total)}</b>\n"
+        + promo_line
+        + f"💰 <b>Итого: {_fmt_price(total)}</b>\n"
         + (f"🏠 Адрес: {data.delivery_address}\n" if data.delivery_address else "")
         + (f"💬 Комментарий: {data.comment}" if data.comment else "")
     )
@@ -347,39 +387,137 @@ async def create_order(
 
     return {
         "id": order.id, "user_id": order.user_id, "total": order.total,
+        "discount": order.discount, "promo_code": order.promo_code,
+        "delivery_cost": order.delivery_cost,
+        "pvz_address": order.pvz_address,
         "status": order.status, "created_at": order.created_at.isoformat(),
     }
 
 
 async def update_order_status(
-    order_id: int, new_status: str, comment: str | None,
-    session: AsyncSession, shop_id: int = 1,
+    order_id: int,
+    new_status: str,
+    comment: str | None,
+    session: AsyncSession,
+    shop_id: int = 1,
+    staff_notes: str | None = None,
+    force: bool = False,
 ) -> OrderResponse:
     if new_status not in ORDER_STATUSES:
         raise HTTPException(400, f"Invalid status: {new_status}")
+
     res = await session.execute(
         select(Order).where(Order.id == order_id, Order.shop_id == shop_id)
     )
     order = res.scalar_one_or_none()
     if not order:
         raise HTTPException(404, "Order not found")
+
+    # Валидация перехода статусов
+    allowed = STATUS_TRANSITIONS.get(order.status, set())
+    if not force and new_status not in allowed and new_status != order.status:
+        allowed_labels = [ORDER_STATUSES[s] for s in sorted(allowed)] if allowed else ["нет"]
+        raise HTTPException(
+            400,
+            f"Нельзя перевести заказ из «{ORDER_STATUSES[order.status]}» "
+            f"в «{ORDER_STATUSES[new_status]}». "
+            f"Допустимые переходы: {', '.join(allowed_labels)}. "
+            f"Используйте force=true для принудительного изменения.",
+        )
+
+    old_status = order.status
     order.status = new_status
     if comment is not None:
         order.comment = comment
+    if staff_notes is not None:
+        order.staff_notes = staff_notes
     await session.commit()
 
+    # Уведомление покупателю — только при значимых переходах
+    _NOTIFY_BUYER_STATUSES = {"paid", "confirmed", "assembled", "shipped", "delivered", "cancelled", "returned"}
     bot_token = await _get_bot_token_for_shop(shop_id, session)
     status_label = ORDER_STATUSES[new_status]
-    await _send_telegram(
-        bot_token, order.user_id,
-        f"📦 <b>Статус заказа #{order_id} изменён</b>\n\nНовый статус: {status_label}"
-        f"\nСумма: {_fmt_price(order.total)}",
-        reply_markup=ORDER_STATUS_MARKUP,
-    )
+
+    if new_status in _NOTIFY_BUYER_STATUSES:
+        buyer_text = _buyer_status_message(order_id, order.total, old_status, new_status, comment)
+        await _send_telegram(bot_token, order.user_id, buyer_text, reply_markup=ORDER_STATUS_MARKUP)
+
+    # Уведомление администратору
     shop = await get_shop_settings(session, shop_id)
     admin_contact = shop.admin_contact or _cfg.admin_tg_id
-    await _send_telegram(bot_token, admin_contact, f"✅ Заказ #{order_id} → {status_label}")
+    await _send_telegram(
+        bot_token, admin_contact,
+        f"🔄 Заказ <b>#{order_id}</b>: "
+        f"{ORDER_STATUSES[old_status]} → {status_label}"
+        + (f"\n📝 {comment}" if comment else ""),
+    )
+
+    # Запрос отзыва покупателю при доставке заказа
+    if new_status == "delivered" and shop.reviews_enabled and order.user_id:
+        await _send_review_request(bot_token, order.user_id, order_id, session)
+
     return _order_to_response(order)
+
+
+async def _send_review_request(
+    bot_token: str,
+    user_id: int,
+    order_id: int,
+    session: AsyncSession,
+) -> None:
+    """Отправляет покупателю inline-клавиатуру для оценки заказа (1–5 ⭐)."""
+    try:
+        # Берём первый товар из заказа для review_product_id
+        items_res = await session.execute(
+            select(OrderItem, Product)
+            .outerjoin(Product, OrderItem.product_id == Product.id)
+            .where(OrderItem.order_id == order_id)
+            .order_by(OrderItem.id)
+            .limit(1)
+        )
+        row = items_res.first()
+        if not row:
+            return
+        item, product = row
+        product_name = product.name if product else "товар"
+        pid = item.product_id
+
+        # callback_data: rv_{order_id}_{product_id}_{rating}
+        stars = ["⭐", "⭐⭐", "⭐⭐⭐", "⭐⭐⭐⭐", "⭐⭐⭐⭐⭐"]
+        kb = {"inline_keyboard": [[
+            {"text": stars[i - 1], "callback_data": f"rv_{order_id}_{pid}_{i}"}
+            for i in range(1, 6)
+        ]]}
+        text = (
+            f"⭐ <b>Как вам заказ #{order_id}?</b>\n"
+            f"Оцените <b>{product_name}</b>:"
+        )
+        await _send_telegram(bot_token, user_id, text, reply_markup=kb)
+    except Exception as e:
+        logger.warning("Failed to send review request order=%s: %s", order_id, e)
+
+
+def _buyer_status_message(
+    order_id: int, total: int, old_status: str, new_status: str, comment: str | None
+) -> str:
+    """Формирует текст уведомления покупателю в зависимости от нового статуса."""
+    label = ORDER_STATUSES[new_status]
+    lines = [f"📦 <b>Заказ #{order_id}</b>", f"Статус: {label}", f"Сумма: {_fmt_price(total)}"]
+
+    extra = {
+        "confirmed": "✅ Ваш заказ подтверждён и принят в работу.",
+        "assembled": "📦 Заказ собран и готов к отправке.",
+        "shipped":   "🚚 Заказ передан в доставку. Ожидайте!",
+        "delivered": "🎉 Заказ доставлен. Спасибо за покупку!",
+        "cancelled": "❌ Ваш заказ отменён.",
+        "returned":  "↩️ По вашему заказу оформлен возврат.",
+        "paid":      "💳 Оплата подтверждена.",
+    }.get(new_status)
+    if extra:
+        lines.append(extra)
+    if comment:
+        lines.append(f"💬 Комментарий: {comment}")
+    return "\n".join(lines)
 
 
 async def _inc_ordered(product_id: int, qty: int, session: AsyncSession) -> None:

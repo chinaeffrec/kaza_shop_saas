@@ -1,27 +1,38 @@
 import logging
 import mimetypes
+import signal
+from contextlib import asynccontextmanager
 from pathlib import Path
-# тест
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.staticfiles import StaticFiles
 
 import app.models
-from app.api.routes.auth import router as auth_router
 from app.api.routes.cart import router as cart_router
 from app.api.routes.catalog import router as catalog_router
 from app.api.routes.health import router as health_router, set_app_ready
 from app.api.routes.imports import router as import_router
 from app.api.routes.orders import router as orders_router
+from app.api.routes.audit import router as audit_router
+from app.api.routes.members import router as members_router
 from app.api.routes.platform_auth import router as platform_auth_router
 from app.api.routes.shops import router as shops_router
 from app.api.routes.products import router as products_router
 from app.api.routes.settings import faq_router, router as settings_router
 from app.api.routes.stats import router as stats_router
+from app.api.routes.cdek import router as cdek_router
+from app.api.routes.customers import router as customers_router
+from app.api.routes.promos import router as promos_router
 from app.api.routes.users import router as users_router
+from app.api.routes.yookassa import router as yookassa_router
+from app.api.routes.miniapp import router as miniapp_router
+from app.api.routes.billing import router as billing_router
+from app.api.routes.reviews import router as reviews_router
+from app.api.routes.platform_control import router as platform_control_router
+from app.api.routes.profile import router as profile_router
 from app.core.config import get_settings
-from app.core.middleware import SecurityHeadersMiddleware
+from app.core.middleware import HTTPSRedirectMiddleware, SecurityHeadersMiddleware, TraceIDMiddleware
 from app.db.alembic_runner import run_migrations_to_head
 from app.db.session import SessionLocal
 from app.logging_setup import configure_logging
@@ -30,33 +41,80 @@ configure_logging("app")
 logger = logging.getLogger(__name__)
 cfg = get_settings()
 
+
+# ── Lifespan (replaces @app.on_event — FastAPI best practice) ─────────────────
+@asynccontextmanager
+async def lifespan(app_instance: FastAPI):
+    # ── Startup ──────────────────────────────────────────────────────────────
+    configure_logging("app")
+    await run_migrations_to_head()
+    await _seed_super_admin()
+    set_app_ready()
+    logger.info("Kaza Shop API started (lifespan)")
+    yield
+    # ── Shutdown (SIGTERM / graceful stop) ────────────────────────────────────
+    logger.info("Graceful shutdown initiated…")
+    # Bot manager is in a separate process (bot service); nothing to stop here.
+    # Flush pending logs, close DB pool.
+    from app.db.engine import engine as _engine
+    await _engine.dispose()
+    logger.info("DB engine disposed — shutdown complete")
+
 # Гарантируем корректный MIME-тип для WebP на любом Linux-образе.
 # На minimal Docker images системный /etc/mime.types может не включать WebP,
 # тогда StaticFiles отдаёт application/octet-stream + nosniff = браузер не
 # отображает изображение. Явная регистрация решает.
 mimetypes.add_type("image/webp", ".webp")
 
+_OPENAPI_TAGS = [
+    {"name": "auth", "description": "Аутентификация платформы: вход, выход, refresh, 2FA (TOTP)"},
+    {"name": "profile", "description": "Профиль пользователя: аватар, display name, настройка 2FA"},
+    {"name": "products", "description": "Каталог товаров: CRUD, фото, видимость"},
+    {"name": "orders", "description": "Жизненный цикл заказов: создание, статусы, история"},
+    {"name": "cart", "description": "Корзина покупателя (bot-scoped)"},
+    {"name": "settings", "description": "Настройки магазина: лого, CDEK, YooKassa, Mini App"},
+    {"name": "stats", "description": "Аналитика: дашборд, выручка, топ товаров"},
+    {"name": "billing", "description": "Управление тарифным планом магазина"},
+    {"name": "reviews", "description": "Отзывы на товары: публикация, модерация"},
+    {"name": "cdek", "description": "Интеграция CDEK v2: расчёт стоимости, тарифы, города"},
+    {"name": "yookassa", "description": "Интеграция YooKassa v3: создание платежей, webhook"},
+    {"name": "miniapp", "description": "Telegram Mini App: авторизация init-data, каталог"},
+    {"name": "members", "description": "RBAC участников магазина: owner / manager / support"},
+    {"name": "platform", "description": "Суперадмин: управление магазинами, импersonation"},
+    {"name": "health", "description": "Проверка работоспособности сервиса"},
+]
+
 app = FastAPI(
     title="Kaza Shop API",
     version="1.0.0",
+    description=(
+        "## Kaza Shop — Multi-tenant Telegram Bot Storefront API\n\n"
+        "Каждый магазин работает на отдельном Telegram-боте, но все боты "
+        "используют единый FastAPI-бэкенд (multi-tenant via `shop_id`).\n\n"
+        "### Аутентификация\n\n"
+        "- **Seller/Admin**: `Authorization: Bearer <access_token>` — JWT HS256, TTL 1 час\n"
+        "- **Bot requests**: `X-Bot-Token`, `X-Bot-Shop-Id`, `X-Bot-User-Id` headers\n"
+        "- **2FA**: двухшаговый вход — `/platform/auth/login` → challenge token → "
+        "`/platform/auth/2fa/verify` → access+refresh tokens\n\n"
+        "### Мультиарендность\n\n"
+        "`shop_id` всегда берётся из JWT-токена, а не из тела запроса. "
+        "Прямая подстановка чужого `shop_id` невозможна (IDOR-защита).\n\n"
+        "### Окружения\n\n"
+        "| Среда | URL |\n"
+        "|---|---|\n"
+        "| Development | `http://localhost:8000` |\n"
+        "| Staging | `https://staging-api.example.com` |\n"
+        "| Production | `https://api.example.com` |"
+    ),
+    openapi_tags=_OPENAPI_TAGS,
     docs_url="/docs" if not cfg.is_production else None,
     redoc_url="/redoc" if not cfg.is_production else None,
     openapi_url="/openapi.json" if not cfg.is_production else None,
+    lifespan=lifespan,
 )
 
 
-@app.on_event("startup")
-async def startup():
-    # Uvicorn сбрасывает logging handlers через dictConfig при старте.
-    # Повторный вызов восстанавливает файловый обработчик после этого сброса.
-    configure_logging("app")
-    await run_migrations_to_head()
-    await _seed_super_admin()
-    set_app_ready()
-    logger.info("DB migrations applied. Kaza Shop started.")
-
-
-async def _seed_super_admin() -> None:
+async def _seed_super_admin() -> None:  # noqa: E302
     from app.services.platform_auth_service import seed_super_admin
     async with SessionLocal() as session:
         try:
@@ -72,6 +130,27 @@ if cfg.domain and cfg.domain != "localhost":
     allowed_hosts.append(cfg.domain)
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=allowed_hosts)
 app.add_middleware(SecurityHeadersMiddleware)
+if cfg.is_production:
+    app.add_middleware(HTTPSRedirectMiddleware)
+from app.core.maintenance import get_maintenance_state, EXCLUDED_PREFIXES
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.responses import JSONResponse as _JSONResponse
+
+class MaintenanceMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request, call_next):
+        path = request.url.path
+        if not any(path.startswith(p) for p in EXCLUDED_PREFIXES):
+            state = await get_maintenance_state()
+            if state:
+                return _JSONResponse(
+                    status_code=503,
+                    content={"detail": state.get("message", "Технические работы"), "maintenance": True},
+                    headers={"Retry-After": "300"},
+                )
+        return await call_next(request)
+
+app.add_middleware(MaintenanceMiddleware)
+app.add_middleware(TraceIDMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=cfg.cors_origins_list,
@@ -86,16 +165,45 @@ for d in (Path("/app/media"), Path("/app/data"), Path("/app/logs")):
 app.mount("/media", StaticFiles(directory="/app/media"), name="media")
 
 # ── Routers ───────────────────────────────────────────────────────────────────
+# Platform routes (internal admin API) — без версии
 app.include_router(health_router)
-app.include_router(auth_router)
 app.include_router(platform_auth_router)
+
+# ── Prometheus metrics (/metrics) ─────────────────────────────────────────────
+if cfg.prometheus_enabled:
+    try:
+        from prometheus_fastapi_instrumentator import Instrumentator
+        Instrumentator(
+            should_group_status_codes=True,
+            should_ignore_untemplated=True,
+            excluded_handlers=["/health", "/metrics"],
+        ).instrument(app).expose(app, endpoint="/metrics", include_in_schema=False)
+        logger.info("Prometheus metrics endpoint enabled at /metrics")
+    except ImportError:
+        logger.warning("prometheus-fastapi-instrumentator not installed — /metrics disabled")
 app.include_router(shops_router)
-app.include_router(products_router)
-app.include_router(cart_router)
-app.include_router(import_router)
-app.include_router(catalog_router)
-app.include_router(orders_router)
-app.include_router(settings_router)
-app.include_router(faq_router)
-app.include_router(stats_router)
-app.include_router(users_router)
+app.include_router(members_router)
+app.include_router(audit_router)
+app.include_router(platform_control_router)
+
+# Tenant + bot routes — версионированные /api/v1/*
+# Все внешние клиенты (seller-panel, bot, Mini App) используют этот prefix.
+# Это позволяет вводить /api/v2/* без поломки существующих клиентов.
+_V1 = "/api/v1"
+app.include_router(products_router, prefix=_V1)
+app.include_router(cart_router, prefix=_V1)
+app.include_router(import_router, prefix=_V1)
+app.include_router(catalog_router, prefix=_V1)
+app.include_router(orders_router, prefix=_V1)
+app.include_router(settings_router, prefix=_V1)
+app.include_router(faq_router, prefix=_V1)
+app.include_router(stats_router, prefix=_V1)
+app.include_router(customers_router, prefix=_V1)
+app.include_router(promos_router, prefix=_V1)
+app.include_router(cdek_router, prefix=_V1)
+app.include_router(yookassa_router, prefix=_V1)
+app.include_router(miniapp_router, prefix=_V1)
+app.include_router(users_router, prefix=_V1)
+app.include_router(billing_router, prefix=_V1)
+app.include_router(reviews_router, prefix=_V1)
+app.include_router(profile_router, prefix=_V1)

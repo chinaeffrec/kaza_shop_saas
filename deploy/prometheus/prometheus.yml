@@ -1,0 +1,48 @@
+global:
+  scrape_interval: 15s       # Default scrape frequency
+  evaluation_interval: 15s   # Rule evaluation frequency
+  scrape_timeout: 10s
+
+# Alertmanager integration (optional — configure if needed)
+# alerting:
+#   alertmanagers:
+#     - static_configs:
+#         - targets: ["alertmanager:9093"]
+
+# Rule files
+# rule_files:
+#   - "rules/*.yml"
+
+scrape_configs:
+
+  # ── Kaza Shop application metrics ────────────────────────────────────────
+  - job_name: "kaza-app"
+    metrics_path: /metrics
+    static_configs:
+      - targets:
+          - app1:8000
+          - app2:8000
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+
+  # ── Prometheus self-monitoring ────────────────────────────────────────────
+  - job_name: "prometheus"
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  # ── PostgreSQL primary (postgres_exporter) — optional ─────────────────────
+  # Uncomment if postgres_exporter is added to docker-compose.ha.yml
+  # - job_name: "postgres"
+  #   static_configs:
+  #     - targets: ["postgres-exporter:9187"]
+
+  # ── Redis (redis_exporter) — optional ─────────────────────────────────────
+  # - job_name: "redis"
+  #   static_configs:
+  #     - targets: ["redis-exporter:9121"]
+
+  # ── PgBouncer (pgbouncer_exporter) — optional ─────────────────────────────
+  # - job_name: "pgbouncer"
+  #   static_configs:
+  #     - targets: ["pgbouncer-exporter:9127"]
