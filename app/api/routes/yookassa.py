@@ -9,9 +9,21 @@ from app.api.schemas.yookassa import (
     PaymentStatusResponse,
     RefundResponse,
 )
+from app.core.config import get_settings
 from app.core.rbac import Perm
+from app.core.security import verify_yookassa_webhook_ip
 from app.db.session import get_session
 from app.services import yookassa_service as svc
+
+
+def _real_client_ip(request: Request) -> str:
+    """Returns the real client IP, respecting X-Forwarded-For behind a trusted proxy."""
+    forwarded_for = request.headers.get("X-Forwarded-For", "")
+    if forwarded_for:
+        # X-Forwarded-For: <client>, <proxy1>, <proxy2>
+        # Nginx appends the direct peer; the leftmost entry is the original client.
+        return forwarded_for.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
 
 router = APIRouter(prefix="/yookassa", tags=["yookassa"])
 
@@ -81,7 +93,7 @@ async def bot_get_payment_status(
     return await svc.get_payment_status(order_id, bot_ctx.shop_id, session)
 
 
-# ── Webhook (unauthenticated — verified by payment_id in DB) ─────────────────
+# ── Webhook (IP-restricted — YooKassa published ranges only) ──────────────────
 
 @router.post("/webhook")
 async def yookassa_webhook(
@@ -90,9 +102,15 @@ async def yookassa_webhook(
 ):
     """
     Входящий webhook от ЮКасса.
-    ЮКасса не требует заголовков авторизации —
-    идентификация происходит по payment_id в базе данных.
+
+    В production принимается только с IP-адресов из официального списка ЮKassa.
+    В development проверка пропускается (ENV != "production").
+    Идентификация платежа — по payment_id в базе данных (дополнительный барьер).
     """
+    cfg = get_settings()
+    if cfg.is_production:
+        verify_yookassa_webhook_ip(_real_client_ip(request))
+
     try:
         payload = await request.json()
     except Exception:

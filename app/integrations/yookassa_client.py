@@ -26,7 +26,9 @@ from app.core.circuit_breaker import yookassa_cb, CircuitOpenError
 logger = logging.getLogger(__name__)
 
 _BASE = "https://api.yookassa.ru/v3"
-_TIMEOUT = httpx.Timeout(15.0)
+# Explicit per-phase timeouts: fail fast on unreachable host (connect=5s),
+# allow more time for payment processing (read=30s).
+_TIMEOUT = httpx.Timeout(connect=5.0, read=30.0, write=10.0, pool=5.0)
 
 
 class YooKassaError(Exception):

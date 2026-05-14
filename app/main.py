@@ -3,9 +3,10 @@ import mimetypes
 import signal
 from contextlib import asynccontextmanager
 from pathlib import Path
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 import app.models
@@ -32,7 +33,12 @@ from app.api.routes.reviews import router as reviews_router
 from app.api.routes.platform_control import router as platform_control_router
 from app.api.routes.profile import router as profile_router
 from app.core.config import get_settings
-from app.core.middleware import HTTPSRedirectMiddleware, SecurityHeadersMiddleware, TraceIDMiddleware
+from app.core.middleware import (
+    HTTPSRedirectMiddleware,
+    MaxBodySizeMiddleware,
+    SecurityHeadersMiddleware,
+    TraceIDMiddleware,
+)
 from app.db.alembic_runner import run_migrations_to_head
 from app.db.session import SessionLocal
 from app.logging_setup import configure_logging
@@ -40,6 +46,31 @@ from app.logging_setup import configure_logging
 configure_logging("app")
 logger = logging.getLogger(__name__)
 cfg = get_settings()
+
+# ── Sentry (optional — enabled when SENTRY_DSN is set) ────────────────────────
+if cfg.sentry_dsn:
+    try:
+        import sentry_sdk
+        from sentry_sdk.integrations.fastapi import FastApiIntegration
+        from sentry_sdk.integrations.sqlalchemy import SqlalchemyIntegration
+        from sentry_sdk.integrations.logging import LoggingIntegration
+        import logging as _logging
+
+        sentry_sdk.init(
+            dsn=cfg.sentry_dsn,
+            environment=cfg.env,
+            traces_sample_rate=cfg.sentry_traces_sample_rate,
+            send_default_pii=False,  # GDPR: no IP/email in events
+            integrations=[
+                FastApiIntegration(transaction_style="endpoint"),
+                SqlalchemyIntegration(),
+                # Capture ERROR+ logs as Sentry events; WARNING as breadcrumbs
+                LoggingIntegration(level=_logging.WARNING, event_level=_logging.ERROR),
+            ],
+        )
+        logger.info("Sentry initialized (env=%s, sample_rate=%.2f)", cfg.env, cfg.sentry_traces_sample_rate)
+    except ImportError:
+        logger.warning("sentry-sdk not installed — error tracking disabled")
 
 
 # ── Lifespan (replaces @app.on_event — FastAPI best practice) ─────────────────
@@ -114,6 +145,63 @@ app = FastAPI(
 )
 
 
+# ── OpenTelemetry (optional — enabled when OTLP_ENDPOINT is set) ──────────────
+# Instruments FastAPI, SQLAlchemy, and httpx automatically.
+# Compatible with Grafana Tempo, Jaeger, Honeycomb, Datadog OTLP, AWS X-Ray.
+# Export format: OTLP/HTTP (proto), endpoint e.g. http://tempo:4318/v1/traces
+if cfg.otlp_endpoint:
+    try:
+        from opentelemetry import trace
+        from opentelemetry.sdk.resources import Resource, SERVICE_NAME
+        from opentelemetry.sdk.trace import TracerProvider
+        from opentelemetry.sdk.trace.export import BatchSpanProcessor
+        from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+        from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+        from opentelemetry.instrumentation.sqlalchemy import SQLAlchemyInstrumentor
+        from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
+
+        _otel_resource = Resource.create({SERVICE_NAME: cfg.otlp_service_name})
+        _otel_provider = TracerProvider(resource=_otel_resource)
+        _otel_provider.add_span_processor(
+            BatchSpanProcessor(OTLPSpanExporter(endpoint=cfg.otlp_endpoint))
+        )
+        trace.set_tracer_provider(_otel_provider)
+
+        # Instrument FastAPI — wraps each endpoint in a span with HTTP attributes
+        FastAPIInstrumentor.instrument_app(
+            app,
+            excluded_urls="/health,/metrics",
+            tracer_provider=_otel_provider,
+        )
+        # Instrument SQLAlchemy — every DB query becomes a child span
+        SQLAlchemyInstrumentor().instrument(tracer_provider=_otel_provider)
+        # Instrument httpx — outgoing calls (YooKassa, CDEK) become child spans
+        HTTPXClientInstrumentor().instrument(tracer_provider=_otel_provider)
+
+        logger.info(
+            "OpenTelemetry tracing enabled → %s (service=%s)",
+            cfg.otlp_endpoint,
+            cfg.otlp_service_name,
+        )
+    except ImportError as _otel_err:
+        logger.warning("opentelemetry packages not installed — tracing disabled: %s", _otel_err)
+
+
+@app.exception_handler(NotImplementedError)
+async def _not_implemented_handler(request: Request, exc: NotImplementedError) -> JSONResponse:
+    """
+    Converts unimplemented payment/delivery provider stubs into HTTP 503.
+    Without this handler FastAPI would return a raw 500 Internal Server Error,
+    leaking a stack trace to the client and revealing which providers are stubs.
+    """
+    logger.warning("NotImplementedError on %s %s: %s", request.method, request.url.path, exc)
+    return JSONResponse(
+        status_code=503,
+        content={"detail": "Этот платёжный провайдер или служба доставки ещё не подключён. "
+                            "Обратитесь к владельцу магазина."},
+    )
+
+
 async def _seed_super_admin() -> None:  # noqa: E302
     from app.services.platform_auth_service import seed_super_admin
     async with SessionLocal() as session:
@@ -158,6 +246,9 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type"],
 )
+# MaxBodySizeMiddleware is added last → outermost layer → first to see requests.
+# Rejects oversized bodies before they reach any other middleware or handler.
+app.add_middleware(MaxBodySizeMiddleware)
 
 # ── Static ─────────────────────────────────────────────────────────────────────
 for d in (Path("/app/media"), Path("/app/data"), Path("/app/logs")):

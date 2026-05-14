@@ -131,17 +131,31 @@ rm -rf "${BACKUP_PATH}"
 TOTAL_SIZE=$(du -sh "$ARCHIVE" | cut -f1)
 echo "${LOG_PREFIX}: Архив создан: ${ARCHIVE} (${TOTAL_SIZE})"
 
+# ── Шифрование (если задан BACKUP_ENCRYPTION_KEY) ─────────────────────────────
+if [[ -n "${BACKUP_ENCRYPTION_KEY:-}" ]]; then
+    echo "${LOG_PREFIX}: Шифрование архива (AES-256-CBC)..."
+    openssl enc -aes-256-cbc -pbkdf2 -iter 600000 \
+        -pass pass:"${BACKUP_ENCRYPTION_KEY}" \
+        -in  "${ARCHIVE}" \
+        -out "${ARCHIVE}.enc"
+    rm -f "${ARCHIVE}"
+    ARCHIVE="${ARCHIVE}.enc"
+    TOTAL_SIZE=$(du -sh "$ARCHIVE" | cut -f1)
+    echo "${LOG_PREFIX}: Архив зашифрован: ${ARCHIVE} (${TOTAL_SIZE})"
+fi
+
 # Симлинк на последний стабильный бэкап (используется healthcheck при падении)
-ln -sf "$(basename "$ARCHIVE")" "${BACKUP_DIR}/kaza_backup_last_stable.tar.gz" 2>/dev/null || true
+# Имя без расширения — агностик к шифрованию (.tar.gz или .tar.gz.enc)
+ln -sf "$(basename "$ARCHIVE")" "${BACKUP_DIR}/kaza_backup_last_stable" 2>/dev/null || true
 
 # ── Ротация (только для ежедневных бэкапов) ────────────────────────────────────
 if [[ $HOURLY_MODE -eq 0 && $EMERGENCY_MODE -eq 0 ]]; then
-    DELETED=$(find "${BACKUP_DIR}" -name "kaza_backup_2*.tar.gz" \
+    DELETED=$(find "${BACKUP_DIR}" \( -name "kaza_backup_2*.tar.gz" -o -name "kaza_backup_2*.tar.gz.enc" \) \
         -mtime "+${KEEP_DAYS}" -delete -print 2>/dev/null | wc -l)
     [[ "$DELETED" -gt 0 ]] && echo "${LOG_PREFIX}: Удалено старых бэкапов: ${DELETED}"
 fi
 
-BACKUP_COUNT=$(find "${BACKUP_DIR}" -name "kaza_backup_2*.tar.gz" 2>/dev/null | wc -l)
+BACKUP_COUNT=$(find "${BACKUP_DIR}" \( -name "kaza_backup_2*.tar.gz" -o -name "kaza_backup_2*.tar.gz.enc" \) 2>/dev/null | wc -l)
 BACKUP_TOTAL=$(du -sh "${BACKUP_DIR}" 2>/dev/null | cut -f1)
 TIMESTAMP_DISPLAY=$(date '+%d.%m.%Y %H:%M')
 

@@ -5,7 +5,7 @@
 from functools import lru_cache
 from typing import Any, List
 
-from pydantic import field_validator
+from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -28,8 +28,9 @@ class Settings(BaseSettings):
     db_name: str = "kaza_shop"
 
     # Security
-    secret_key: str = ""          # Legacy: used by old /auth/* routes only
-    platform_jwt_secret: str = "" # Platform JWT signing key (required in production)
+    secret_key: str = ""           # Fernet key for field encryption (required in production)
+    platform_jwt_secret: str = ""  # JWT signing key (required in production)
+    # admin_password kept for backwards compat but unused — do not populate
     admin_password: str = ""
 
     # Platform super-admin seed (используется только при первом запуске)
@@ -55,8 +56,24 @@ class Settings(BaseSettings):
     # Временная зона для отображения дат (экспорт, отчёты)
     timezone: str = "Europe/Moscow"
 
+    # ── Media storage ─────────────────────────────────────────────────────────────
+    # "local": write to media_dir and serve via /media/ (default, single-host)
+    # "s3":    upload to S3-compatible bucket (enables multi-host horizontal scaling)
+    storage_backend: str = "local"
+    media_dir: str = "/app/media"
+
+    # S3-compatible storage (AWS S3, MinIO, Yandex Object Storage, Cloudflare R2…)
+    # Required when storage_backend="s3":
+    s3_endpoint: str = ""      # e.g. https://s3.amazonaws.com or http://minio:9000
+    s3_bucket: str = ""        # bucket name
+    s3_access_key: str = ""
+    s3_secret_key: str = ""
+    s3_public_url: str = ""    # CDN or public base URL for serving files
+
     # Бэкапы
     backup_keep_days: int = 14
+    # AES-256-CBC key for backup archive encryption (passed to openssl enc -pass)
+    backup_encryption_key: str = ""
 
     # ── High Availability ──────────────────────────────────────────────────────
     # PgBouncer: если задан — engine использует его вместо прямого подключения
@@ -86,6 +103,52 @@ class Settings(BaseSettings):
 
     # Logging
     log_level: str = "INFO"
+
+    # ── Error tracking & APM ───────────────────────────────────────────────────
+    # Sentry: set SENTRY_DSN to enable. Leave empty to disable.
+    sentry_dsn: str = ""
+    # Sentry: fraction of transactions to send as performance traces (0.0 – 1.0)
+    sentry_traces_sample_rate: float = 0.05
+
+    # OpenTelemetry OTLP exporter: set OTLP_ENDPOINT to enable (e.g. http://tempo:4318)
+    # Compatible with Grafana Tempo, Jaeger, Honeycomb, Datadog OTLP, AWS X-Ray, etc.
+    otlp_endpoint: str = ""
+    otlp_service_name: str = "kaza-shop"
+
+    @model_validator(mode="after")
+    def _validate_production_secrets(self) -> "Settings":
+        """Blocks startup when required secrets are missing in production."""
+        if self.env != "production":
+            return self
+        missing: list[str] = []
+        if not self.platform_jwt_secret:
+            missing.append("PLATFORM_JWT_SECRET")
+        if not self.secret_key:
+            missing.append("SECRET_KEY")
+        if missing:
+            raise ValueError(
+                f"Required secrets are not set for production environment: "
+                f"{', '.join(missing)}. "
+                f"Generate them with: python -c \"import secrets; print(secrets.token_hex(32))\""
+            )
+        origins = self.cors_origins if isinstance(self.cors_origins, list) else []
+        if not origins:
+            import warnings
+            warnings.warn(
+                "CORS_ORIGINS is empty in production. "
+                "All cross-origin requests will be blocked. "
+                "Set CORS_ORIGINS to the seller-panel and mini-app domains.",
+                stacklevel=2,
+            )
+        if not self.backup_encryption_key:
+            import warnings
+            warnings.warn(
+                "BACKUP_ENCRYPTION_KEY is not set. Backup archives will be stored unencrypted. "
+                "A leaked backup file exposes the entire database. "
+                "Generate with: python -c \"import secrets; print(secrets.token_hex(32))\"",
+                stacklevel=2,
+            )
+        return self
 
     @field_validator("cors_origins", mode="before")
     @classmethod

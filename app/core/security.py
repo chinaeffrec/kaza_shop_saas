@@ -1,9 +1,10 @@
 """
 Security utilities.
 
-validate_url()        — SSRF prevention: blocks private IP ranges and non-HTTPS schemes.
-check_image_magic()   — File content validation via magic bytes (prevents polyglot exploits).
-sanitize_filename()   — Safe filename stripping for uploads.
+validate_url()              — SSRF prevention: blocks private IP ranges and non-HTTPS schemes.
+check_image_magic()         — File content validation via magic bytes (prevents polyglot exploits).
+sanitize_filename()         — Safe filename stripping for uploads.
+verify_yookassa_webhook_ip()— Blocks webhook calls from IPs outside YooKassa's published ranges.
 """
 from __future__ import annotations
 
@@ -133,6 +134,41 @@ def validate_url(
         )
 
     return url
+
+
+# ── YooKassa webhook IP allowlist ─────────────────────────────────────────────
+# Source: https://yookassa.ru/developers/using-api/webhooks (section "IP addresses")
+# These are the only IPs from which YooKassa sends webhook notifications.
+_YOOKASSA_ALLOWED_NETWORKS: list[ipaddress.IPv4Network | ipaddress.IPv6Network] = [
+    ipaddress.ip_network("185.71.76.0/27"),
+    ipaddress.ip_network("185.71.77.0/27"),
+    ipaddress.ip_network("77.75.153.0/25"),
+    ipaddress.ip_network("77.75.156.11/32"),
+    ipaddress.ip_network("77.75.156.35/32"),
+    ipaddress.ip_network("140.91.0.0/23"),
+]
+
+
+def verify_yookassa_webhook_ip(client_ip: str) -> None:
+    """
+    Raises HTTPException(403) if client_ip is not in YooKassa's published IP ranges.
+    Call this at the top of the webhook handler before processing any payload.
+
+    Pass skip_check=True only in non-production environments.
+    """
+    try:
+        addr = ipaddress.ip_address(client_ip)
+    except ValueError:
+        raise HTTPException(403, f"Webhook rejected: unparseable source IP {client_ip!r}")
+
+    for net in _YOOKASSA_ALLOWED_NETWORKS:
+        if addr in net:
+            return
+
+    raise HTTPException(
+        403,
+        f"Webhook rejected: source IP {client_ip} is not in YooKassa's allowed ranges",
+    )
 
 
 # ── File magic bytes ───────────────────────────────────────────────────────────

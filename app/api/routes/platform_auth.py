@@ -125,10 +125,25 @@ async def verify_2fa_login(
     data: TotpVerifyLoginRequest,
     session: AsyncSession = Depends(get_session),
 ):
-    """Второй шаг входа: проверяет TOTP-код по challenge_token, выдаёт полные токены."""
+    """Второй шаг входа: проверяет TOTP-код по challenge_token, выдаёт полные токены.
+
+    Rate limit: 5 попыток на пользователя за 5 минут (TTL challenge-токена).
+    При превышении — HTTP 429. При недоступности Redis — HTTP 503 (fail-closed).
+    """
     user_id = svc.decode_totp_challenge_token(data.challenge_token)
     if user_id is None:
         raise HTTPException(status_code=401, detail="Недействительный или истёкший challenge_token")
+
+    # Rate limit ДО обращения к БД — защита от брутфорса 6-значных TOTP кодов
+    allowed, remaining = await svc.check_totp_attempt(user_id)
+    if not allowed:
+        if remaining == 0 and allowed is False:
+            raise HTTPException(
+                status_code=429,
+                detail="Превышено число попыток ввода кода. Войдите заново.",
+                headers={"Retry-After": "300"},
+            )
+        raise HTTPException(status_code=503, detail="Сервис временно недоступен (Redis)")
 
     user = await svc.get_user_by_id(user_id, session)
     if not user or not user.is_active:
@@ -141,8 +156,13 @@ async def verify_2fa_login(
     except ValueError:
         raise HTTPException(status_code=500, detail="Ошибка расшифровки 2FA секрета")
     if not svc.verify_totp_code(_plaintext_secret, data.totp_code):
-        raise HTTPException(status_code=400, detail="Неверный код. Проверьте время на устройстве.")
+        raise HTTPException(
+            status_code=400,
+            detail=f"Неверный код. Проверьте время на устройстве. "
+                   f"Осталось попыток: {remaining}.",
+        )
 
+    await svc.clear_totp_attempts(user.id)
     role, shop_id = await svc.get_token_claims(user, session)
     refresh_jti = await svc.create_refresh_token(user.id)
     access_token = svc.create_access_token(user.id, role, shop_id, email=user.email)

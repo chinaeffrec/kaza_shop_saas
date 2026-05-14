@@ -59,6 +59,34 @@ async def clear_login_rate_limit(ip: str) -> None:
     await redis_delete(f"rl:platform_login:{ip}")
 
 
+# ── 2FA attempt rate limiting ─────────────────────────────────────────────────
+# Ограничивает перебор TOTP-кодов: max 5 попыток за TTL challenge-токена (5 мин).
+# Ключ привязан к user_id, а не к IP — один пользователь на одном challenge.
+_TOTP_MAX_ATTEMPTS = 5
+_TOTP_ATTEMPT_WINDOW = 300  # 5 минут = TTL challenge-токена
+
+
+async def check_totp_attempt(user_id: int) -> tuple[bool, int]:
+    """
+    Увеличивает счётчик попыток TOTP для пользователя.
+    Возвращает (allowed, attempts_remaining).
+    При недоступности Redis — fail-closed (блокируем, 0 попыток остаётся).
+    """
+    key = f"totp_attempts:{user_id}"
+    count = await redis_incr(key)
+    if count is None:
+        return False, 0
+    if count == 1:
+        await redis_expire(key, _TOTP_ATTEMPT_WINDOW)
+    remaining = max(_TOTP_MAX_ATTEMPTS - count, 0)
+    return count <= _TOTP_MAX_ATTEMPTS, remaining
+
+
+async def clear_totp_attempts(user_id: int) -> None:
+    """Сбрасывает счётчик после успешного входа."""
+    await redis_delete(f"totp_attempts:{user_id}")
+
+
 # ── Пароли ────────────────────────────────────────────────────────────────────
 def hash_password(password: str) -> str:
     return bcrypt.hashpw(password.encode(), bcrypt.gensalt(rounds=12)).decode()
@@ -93,13 +121,15 @@ def create_access_token(
 ) -> str:
     secret = _require_platform_secret()
     now = datetime.now(timezone.utc)
+    now_ts = int(now.timestamp())
     payload = {
         "sub": str(user_id),
         "role": role,
         "shop_id": shop_id,
         "email": email,
-        "iat": int(now.timestamp()),
-        "exp": int(now.timestamp()) + _cfg.access_token_ttl,
+        "iat": now_ts,
+        "nbf": now_ts,
+        "exp": now_ts + _cfg.access_token_ttl,
         "jti": jti or str(uuid.uuid4()),
     }
     return jwt.encode(payload, secret, algorithm="HS256")
@@ -305,11 +335,13 @@ def _totp_challenge_secret() -> str:
 def create_totp_challenge_token(user_id: int) -> str:
     """Короткоживущий JWT (5 мин) для прохождения второго шага 2FA."""
     now = datetime.now(timezone.utc)
+    now_ts = int(now.timestamp())
     payload = {
         "sub": str(user_id),
         "scope": "totp_challenge",
-        "iat": int(now.timestamp()),
-        "exp": int(now.timestamp()) + _TOTP_CHALLENGE_TTL,
+        "iat": now_ts,
+        "nbf": now_ts,
+        "exp": now_ts + _TOTP_CHALLENGE_TTL,
     }
     return jwt.encode(payload, _totp_challenge_secret(), algorithm="HS256")
 
@@ -352,23 +384,25 @@ def verify_totp_code(secret: str, code: str) -> bool:
 
 
 # ── Шифрование TOTP-секрета (Fernet) ─────────────────────────────────────────
+# Использует тот же Fernet-ключ, что и encrypt_field() из encryption.py
+# (ключ выводится из SECRET_KEY через SHA-256). Изменение SECRET_KEY требует
+# повторного шифрования всех TOTP-секретов и bot_token'ов.
 
 def encrypt_totp_secret(plaintext_secret: str) -> str:
-    """Шифрует открытый TOTP base32-секрет с помощью FERNET_KEY.
+    """Шифрует открытый TOTP base32-секрет.
 
-    Возвращает строку вида ``enc:<base64-fernet-token>``.
-    Префикс ``enc:`` позволяет отличить зашифрованные значения от
-    устаревших открытых текстов (миграция без потери данных).
+    Возвращает строку вида ``enc:<fernet-token>``.
+    Префикс ``enc:`` отличает зашифрованные значения от устаревших открытых
+    текстов (обратная совместимость при миграции).
     """
-    from cryptography.fernet import Fernet
-    cfg = get_settings()
-    fernet_key = getattr(cfg, "FERNET_KEY", None)
-    if not fernet_key:
-        # Fernet key not configured — store plaintext as fallback (dev mode only)
-        _log.warning("FERNET_KEY not set — TOTP secret stored unencrypted (development mode only)")
+    from app.core.encryption import _get_fernet
+    try:
+        token = _get_fernet().encrypt(plaintext_secret.encode()).decode()
+        return "enc:" + token
+    except RuntimeError:
+        # SECRET_KEY не задан — только в development без шифрования
+        logger.warning("SECRET_KEY not set — TOTP secret stored unencrypted (development only)")
         return plaintext_secret
-    f = Fernet(fernet_key.encode() if isinstance(fernet_key, str) else fernet_key)
-    return "enc:" + f.encrypt(plaintext_secret.encode()).decode()
 
 
 def decrypt_totp_secret(stored_secret: str) -> str:
@@ -378,19 +412,16 @@ def decrypt_totp_secret(stored_secret: str) -> str:
     устаревший открытый текст (обратная совместимость при миграции).
     """
     if not stored_secret.startswith("enc:"):
-        # Legacy plaintext value (stored before Fernet was introduced)
         return stored_secret
-    from cryptography.fernet import Fernet, InvalidToken
-    cfg = get_settings()
-    fernet_key = getattr(cfg, "FERNET_KEY", None)
-    if not fernet_key:
-        _log.error("FERNET_KEY not set but encrypted TOTP secret found in DB")
-        raise ValueError("Cannot decrypt TOTP secret: FERNET_KEY is not configured")
+    from cryptography.fernet import InvalidToken
+    from app.core.encryption import _get_fernet
     try:
-        f = Fernet(fernet_key.encode() if isinstance(fernet_key, str) else fernet_key)
-        return f.decrypt(stored_secret[4:].encode()).decode()
+        return _get_fernet().decrypt(stored_secret[4:].encode()).decode()
+    except RuntimeError as exc:
+        logger.error("SECRET_KEY not set but encrypted TOTP secret found in DB")
+        raise ValueError("Cannot decrypt TOTP secret: SECRET_KEY is not configured") from exc
     except InvalidToken as exc:
-        _log.error("Failed to decrypt TOTP secret — FERNET_KEY mismatch?")
+        logger.error("Failed to decrypt TOTP secret — SECRET_KEY mismatch?")
         raise ValueError("Cannot decrypt TOTP secret") from exc
 
 

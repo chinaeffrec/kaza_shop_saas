@@ -2,19 +2,16 @@
 Сервис загрузки файлов настроек (лого, штамп, QR) и FAQ.
 """
 import uuid
-from pathlib import Path
 
-import aiofiles
 from fastapi import HTTPException, UploadFile
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.schemas.settings import FaqItemResponse, FaqUpdate, SettingsResponse, SettingsUpdate
 from app.core.security import check_image_magic
+from app.core.storage import get_storage
 from app.models.settings import FaqItem, ShopSettings
 from app.services.settings_service import get_shop_settings, invalidate_settings_cache
-
-MEDIA_DIR = Path("/app/media")
 ALLOWED_IMG = {"image/jpeg", "image/png", "image/webp", "image/svg+xml"}
 ALLOWED_IMG_NO_SVG = {"image/jpeg", "image/png", "image/webp"}
 MAX_UPLOAD = 5 * 1024 * 1024
@@ -111,27 +108,22 @@ async def _upload_file(
         # Map detected format name to canonical file extension
         ext = "jpg" if detected_fmt == "jpeg" else detected_fmt
 
+    storage = get_storage()
     old_fn = getattr(s, field, None)
     if old_fn:
-        old = MEDIA_DIR / old_fn
-        if old.exists():
-            old.unlink()
+        await storage.delete(old_fn)
     filename = f"{prefix}_{uuid.uuid4().hex[:8]}.{ext}"
-    MEDIA_DIR.mkdir(parents=True, exist_ok=True)
-    async with aiofiles.open(MEDIA_DIR / filename, "wb") as f:
-        await f.write(content)
+    await storage.save(filename, content, file.content_type or "application/octet-stream")
     setattr(s, field, filename)
     await session.commit()
     invalidate_settings_cache()
-    return filename
+    return storage.url(filename)
 
 
 async def _delete_file(s: ShopSettings, field: str, session: AsyncSession) -> None:
     fn = getattr(s, field, None)
     if fn:
-        p = MEDIA_DIR / fn
-        if p.exists():
-            p.unlink()
+        await get_storage().delete(fn)
         setattr(s, field, None)
         await session.commit()
         invalidate_settings_cache()
@@ -139,8 +131,8 @@ async def _delete_file(s: ShopSettings, field: str, session: AsyncSession) -> No
 
 async def upload_logo(file: UploadFile, session: AsyncSession, shop_id: int = 1) -> dict:
     s = await get_shop_settings(session, shop_id)
-    fn = await _upload_file(s, "logo_filename", file, "logo", ALLOWED_IMG, session)
-    return {"logo_url": f"/media/{fn}"}
+    url = await _upload_file(s, "logo_filename", file, "logo", ALLOWED_IMG, session)
+    return {"logo_url": url}
 
 
 async def delete_logo(session: AsyncSession, shop_id: int = 1) -> dict:
@@ -151,8 +143,8 @@ async def delete_logo(session: AsyncSession, shop_id: int = 1) -> dict:
 
 async def upload_stamp(file: UploadFile, session: AsyncSession, shop_id: int = 1) -> dict:
     s = await get_shop_settings(session, shop_id)
-    fn = await _upload_file(s, "stamp_filename", file, "stamp", ALLOWED_IMG_NO_SVG, session)
-    return {"stamp_url": f"/media/{fn}"}
+    url = await _upload_file(s, "stamp_filename", file, "stamp", ALLOWED_IMG_NO_SVG, session)
+    return {"stamp_url": url}
 
 
 async def delete_stamp(session: AsyncSession, shop_id: int = 1) -> dict:
@@ -163,8 +155,8 @@ async def delete_stamp(session: AsyncSession, shop_id: int = 1) -> dict:
 
 async def upload_payment_qr(file: UploadFile, session: AsyncSession, shop_id: int = 1) -> dict:
     s = await get_shop_settings(session, shop_id)
-    fn = await _upload_file(s, "payment_qr_filename", file, "payment_qr", ALLOWED_IMG_NO_SVG, session)
-    return {"payment_qr_url": f"/media/{fn}"}
+    url = await _upload_file(s, "payment_qr_filename", file, "payment_qr", ALLOWED_IMG_NO_SVG, session)
+    return {"payment_qr_url": url}
 
 
 async def delete_payment_qr(session: AsyncSession, shop_id: int = 1) -> dict:

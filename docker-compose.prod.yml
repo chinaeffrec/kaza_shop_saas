@@ -46,8 +46,14 @@ services:
       -c statement_timeout=30000
       -c lock_timeout=10000
       -c idle_in_transaction_session_timeout=30000
+      -c wal_level=replica
+      -c max_wal_senders=3
+      -c wal_keep_size=64MB
+      -c hot_standby=on
+      -c hba_file=/etc/postgresql/pg_hba.conf
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - ./deploy/postgres/pg_hba.conf:/etc/postgresql/pg_hba.conf:ro
     networks:
       - internal
     healthcheck:
@@ -61,7 +67,79 @@ services:
         limits:
           memory: 512M
 
-  app:
+  # PgBouncer — connection pooler (transaction mode) in front of PostgreSQL.
+  # With 2 app instances × pool_size=10 each = 20 SQLAlchemy connections;
+  # PgBouncer multiplexes these to just 20 real PostgreSQL connections while
+  # serving up to 500 client connections. Enables 10× more concurrent shops
+  # without raising PostgreSQL max_connections.
+  pgbouncer:
+    image: bitnami/pgbouncer:1.23.1
+    restart: always
+    logging: *default-logging
+    environment:
+      POSTGRESQL_HOST: db
+      POSTGRESQL_PORT: "5432"
+      POSTGRESQL_DATABASE: ${DB_NAME}
+      POSTGRESQL_USERNAME: ${DB_USER}
+      POSTGRESQL_PASSWORD: ${DB_PASSWORD}
+      PGBOUNCER_POOL_MODE: transaction
+      PGBOUNCER_MAX_CLIENT_CONN: "500"
+      PGBOUNCER_DEFAULT_POOL_SIZE: "20"
+      PGBOUNCER_MIN_POOL_SIZE: "5"
+      PGBOUNCER_RESERVE_POOL_SIZE: "5"
+      PGBOUNCER_AUTH_TYPE: md5
+      PGBOUNCER_SERVER_RESET_QUERY: "DISCARD ALL"
+      PGBOUNCER_LOG_CONNECTIONS: "0"
+      PGBOUNCER_LOG_DISCONNECTIONS: "0"
+    networks:
+      - internal
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -p 5432 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          memory: 32M
+
+  # PostgreSQL streaming replica — hot-standby for read offloading and failover.
+  # On first start, pg_basebackup copies the primary; subsequent starts replay WAL.
+  # Health check monitors the replica lag via DB_REPLICA_HOST=db-replica in .env.
+  db-replica:
+    image: postgres:15-alpine
+    restart: always
+    logging: *default-logging
+    environment:
+      PGDATA: /var/lib/postgresql/data
+      PRIMARY_HOST: db
+      PRIMARY_USER: ${DB_USER}
+      PRIMARY_PASSWORD: ${DB_PASSWORD}
+    entrypoint: ["/bin/sh", "/scripts/replica-entrypoint.sh"]
+    volumes:
+      - postgres_replica_data:/var/lib/postgresql/data
+      - ./deploy/postgres/replica-entrypoint.sh:/scripts/replica-entrypoint.sh:ro
+    networks:
+      - internal
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
+  app: &app-base
     build:
       context: .
       dockerfile: Dockerfile
@@ -76,8 +154,14 @@ services:
     env_file: .env
     environment:
       ENV: production
+      # Route all DB traffic through PgBouncer (transaction-mode pooling).
+      # engine.py detects this URL and reduces SQLAlchemy pool to 2+3 connections
+      # per instance; PgBouncer multiplexes them against the real PostgreSQL pool.
+      DB_PGBOUNCER_URL: postgresql+asyncpg://${DB_USER}:${DB_PASSWORD}@pgbouncer:5432/${DB_NAME}
     depends_on:
       db:
+        condition: service_healthy
+      pgbouncer:
         condition: service_healthy
     networks:
       - internal
@@ -96,6 +180,16 @@ services:
       resources:
         limits:
           memory: 512M
+
+  # Second app instance for zero-downtime restarts and horizontal scale.
+  # nginx upstream (kaza_app) load-balances between :8000 and :8001 with
+  # least_conn + passive health checks (max_fails=3 fail_timeout=30s).
+  # Both instances run migrations on startup; pg_try_advisory_lock ensures
+  # only one executes — the other waits and then sees "already at head".
+  app2:
+    <<: *app-base
+    ports:
+      - "127.0.0.1:8001:8000"
 
   bot:
     build:
@@ -149,4 +243,5 @@ networks:
 
 volumes:
   postgres_data:
+  postgres_replica_data:
   redis_data:

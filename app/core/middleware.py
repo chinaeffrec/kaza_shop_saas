@@ -1,18 +1,29 @@
 """
 Security middleware + observability middleware.
 
-TraceIDMiddleware     — инжектирует X-Request-ID / uuid4 в ContextVar trace_id_var
-                        (используется структурированным логером).
+TraceIDMiddleware       — инжектирует X-Request-ID / uuid4 в ContextVar trace_id_var
+                          (используется структурированным логером).
 HTTPSRedirectMiddleware — редирект HTTP → HTTPS в продакшене.
 SecurityHeadersMiddleware — стандартные security-заголовки.
+MaxBodySizeMiddleware   — отклоняет запросы с Content-Length выше лимита.
 """
+import re
 import uuid
 
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
-from starlette.responses import RedirectResponse, Response
+from starlette.responses import JSONResponse, RedirectResponse, Response
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 from app.logging_setup import trace_id_var
+
+# Endpoints that accept large uploads (media archives up to 512 MB).
+# MaxBodySizeMiddleware skips the body-size check for these paths.
+_LARGE_UPLOAD_PATHS = ("/api/v1/import",)
+
+# UUID v4 format: 8-4-4-4-12 hex digits, or any alphanumeric+dash up to 36 chars.
+# Rejects newlines, control chars, and anything that could break JSON log entries.
+_TRACE_ID_RE = re.compile(r"^[a-zA-Z0-9\-]{1,36}$")
 
 
 class TraceIDMiddleware(BaseHTTPMiddleware):
@@ -24,7 +35,9 @@ class TraceIDMiddleware(BaseHTTPMiddleware):
     """
 
     async def dispatch(self, request: Request, call_next) -> Response:
-        trace_id = request.headers.get("X-Request-ID") or str(uuid.uuid4())
+        raw = request.headers.get("X-Request-ID", "")
+        # Accept only safe characters to prevent log injection / JSON log poisoning.
+        trace_id = raw if raw and _TRACE_ID_RE.match(raw) else str(uuid.uuid4())
         token = trace_id_var.set(trace_id)
         try:
             response = await call_next(request)
@@ -95,3 +108,44 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
                     "default-src 'none'; frame-ancestors 'none'"
                 )
         return response
+
+
+class MaxBodySizeMiddleware:
+    """
+    Rejects requests whose Content-Length header exceeds max_bytes.
+
+    Uses header inspection only — does NOT buffer the request body, so there
+    is no memory overhead. nginx client_max_body_size enforces the real limit
+    at the transport layer; this middleware is defence-in-depth for direct
+    access to port 8000 (bot → app, internal network) and acts as an early
+    rejection gate to avoid wasting app-worker time on oversized requests.
+
+    Import paths (_LARGE_UPLOAD_PATHS) are excluded because they legitimately
+    accept ZIP archives up to 512 MB.
+    """
+
+    def __init__(self, app: ASGIApp, max_bytes: int = 32 * 1024 * 1024) -> None:
+        self.app = app
+        self.max_bytes = max_bytes
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] == "http":
+            path: str = scope.get("path", "")
+            if not any(path.startswith(p) for p in _LARGE_UPLOAD_PATHS):
+                headers: dict[bytes, bytes] = dict(scope.get("headers", []))
+                cl = headers.get(b"content-length")
+                if cl:
+                    try:
+                        if int(cl) > self.max_bytes:
+                            response = JSONResponse(
+                                {"detail": (
+                                    f"Тело запроса слишком большое. "
+                                    f"Максимум {self.max_bytes // 1024 // 1024} МБ."
+                                )},
+                                status_code=413,
+                            )
+                            await response(scope, receive, send)
+                            return
+                    except (ValueError, TypeError):
+                        pass
+        await self.app(scope, receive, send)

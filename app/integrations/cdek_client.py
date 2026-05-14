@@ -29,7 +29,9 @@ logger = logging.getLogger(__name__)
 _PROD_BASE = "https://api.cdek.ru/v2"
 _TEST_BASE = "https://api.edu.cdek.ru/v2"
 
-_TIMEOUT = httpx.Timeout(15.0)
+# Explicit per-phase timeouts: fail fast on unreachable host (connect=5s),
+# allow more time for delivery calculation responses (read=30s).
+_TIMEOUT = httpx.Timeout(connect=5.0, read=30.0, write=10.0, pool=5.0)
 
 # In-process fallback cache: {shop_id: (token, expires_at)}
 _token_cache: dict[int, tuple[str, float]] = {}

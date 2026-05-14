@@ -8,18 +8,16 @@ import uuid
 from pathlib import Path
 from typing import Optional
 
-import aiofiles
 from fastapi import BackgroundTasks, HTTPException, UploadFile
 from PIL import Image
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.schemas.product import ProductCreate, ProductListResponse, ProductResponse, ProductUpdate
+from app.core.storage import LocalStorage, get_storage
 from app.models.product import Product
 from app.models.subcategory import SubCategory
 from app.services.cache_service import invalidate_catalog_cache
-
-MEDIA_DIR = Path("/app/media")
 ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp"}
 MAX_IMAGE_SIZE = 10 * 1024 * 1024
 IMAGE_MAX_DIMENSION = 1000
@@ -144,12 +142,11 @@ async def delete_product(
     product_id: int, session: AsyncSession, shop_id: int = 1
 ) -> dict:
     product = await get_product_or_404(product_id, session, shop_id)
+    storage = get_storage()
     for field in ("image_file_id", "image_file_id_2", "image_file_id_3"):
         fn = getattr(product, field, None)
         if fn:
-            p = MEDIA_DIR / fn
-            if p.exists():
-                p.unlink()
+            await storage.delete(fn)
     await session.delete(product)
     await session.commit()
     await invalidate_catalog_cache(shop_id)
@@ -166,13 +163,12 @@ async def bulk_delete_products(
         select(Product).where(Product.id.in_(ids), Product.shop_id == shop_id)
     )
     products = result.scalars().all()
+    storage = get_storage()
     for product in products:
         for field in ("image_file_id", "image_file_id_2", "image_file_id_3"):
             fn = getattr(product, field, None)
             if fn:
-                p = MEDIA_DIR / fn
-                if p.exists():
-                    p.unlink()
+                await storage.delete(fn)
         await session.delete(product)
     await session.commit()
     await invalidate_catalog_cache(shop_id)
@@ -240,26 +236,27 @@ async def upload_photo(
     ext = _FORMAT_MAP.get(file.content_type, ("JPEG", "jpg"))[1]
     product = await get_product_or_404(product_id, session, shop_id)
     field = _photo_field(slot)
+    storage = get_storage()
     old_fn = getattr(product, field, None)
     if old_fn:
-        old_path = MEDIA_DIR / old_fn
-        if old_path.exists():
-            old_path.unlink()
+        await storage.delete(old_fn)
 
     suffix = "" if slot == 1 else f"_s{slot}"
     filename = f"product_{product_id}{suffix}_{uuid.uuid4().hex[:8]}.{ext}"
-    dest = MEDIA_DIR / filename
-    MEDIA_DIR.mkdir(parents=True, exist_ok=True)
 
-    async with aiofiles.open(dest, "wb") as out:
-        await out.write(content)
+    if isinstance(storage, LocalStorage):
+        # Local: save first, compress in a background task (keeps request fast).
+        url = await storage.save(filename, content, file.content_type)
+        background_tasks.add_task(_compress_and_replace, storage.path(filename), content, file.content_type)
+    else:
+        # S3: compress inline before upload (no local path to overwrite later).
+        compressed, _ = _compress_image(content, file.content_type)
+        url = await storage.save(filename, compressed, file.content_type)
 
     setattr(product, field, filename)
     await session.commit()
-
-    background_tasks.add_task(_compress_and_replace, dest, content, file.content_type)
     await invalidate_catalog_cache(shop_id)
-    return {"status": "ok", "slot": slot, "filename": filename, "url": f"/media/{filename}"}
+    return {"status": "ok", "slot": slot, "filename": filename, "url": url}
 
 
 async def delete_photo(
@@ -269,9 +266,7 @@ async def delete_photo(
     field = _photo_field(slot)
     fn = getattr(product, field, None)
     if fn:
-        path = MEDIA_DIR / fn
-        if path.exists():
-            path.unlink()
+        await get_storage().delete(fn)
         setattr(product, field, None)
         await session.commit()
         await invalidate_catalog_cache(shop_id)

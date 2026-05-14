@@ -25,7 +25,7 @@ if [[ -n "${1:-}" && -f "$1" ]]; then
     ARCHIVE="$1"
 else
     echo -e "\n${BOLD}Доступные бэкапы:${NC}"
-    mapfile -t BACKUPS < <(find "$BACKUP_DIR" -name "kaza_backup_*.tar.gz" ! -name "kaza_backup_last_stable.tar.gz" | sort -r)
+    mapfile -t BACKUPS < <(find "$BACKUP_DIR" \( -name "kaza_backup_*.tar.gz" -o -name "kaza_backup_*.tar.gz.enc" \) ! -name "kaza_backup_last_stable*" | sort -r)
     if [[ ${#BACKUPS[@]} -eq 0 ]]; then
         err "Бэкапы не найдены в ${BACKUP_DIR}"
     fi
@@ -64,6 +64,23 @@ fi
 # ── Распаковка архива ─────────────────────────────────────────────────────────
 TMP_DIR=$(mktemp -d)
 trap 'rm -rf "$TMP_DIR"' EXIT
+
+# ── Расшифровка зашифрованного архива ─────────────────────────────────────────
+if [[ "$ARCHIVE" == *.enc ]]; then
+    [[ -z "${BACKUP_ENCRYPTION_KEY:-}" ]] && \
+        err "Архив зашифрован, но BACKUP_ENCRYPTION_KEY не задан в .env"
+    info "Расшифровываем архив (AES-256-CBC)..."
+    DECRYPTED="${TMP_DIR}/backup.tar.gz"
+    if openssl enc -d -aes-256-cbc -pbkdf2 -iter 600000 \
+            -pass pass:"${BACKUP_ENCRYPTION_KEY}" \
+            -in  "${ARCHIVE}" \
+            -out "${DECRYPTED}"; then
+        ARCHIVE="${DECRYPTED}"
+        ok "Архив расшифрован"
+    else
+        err "Ошибка расшифровки. Проверьте BACKUP_ENCRYPTION_KEY в .env"
+    fi
+fi
 
 info "Распаковываем архив..."
 tar -xzf "$ARCHIVE" -C "$TMP_DIR"
